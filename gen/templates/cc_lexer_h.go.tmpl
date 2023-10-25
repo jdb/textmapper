@@ -2,70 +2,72 @@
 #ifndef {{.Options.IncludeGuardPrefix}}LEXER_H_
 #define {{.Options.IncludeGuardPrefix}}LEXER_H_
 
-#include <array>
+{{block "lexerHeaderIncludes" . -}}
 #include <cstdint>
 #include <ostream>
+#include <tuple>
 
-#include "absl/strings/string_view.h"
-
+#include "{{.Options.AbslIncludePrefix}}/strings/string_view.h"
+#include "{{.Options.DirIncludePrefix}}{{.Options.FilenamePrefix}}token.h"
+{{end}}
 namespace {{.Options.Namespace}} {
 inline constexpr absl::string_view bomSeq = "\xef\xbb\xbf";
 
-// Token is an enum of all terminal symbols of the {{.Name}} language.
-enum class Token {
-  UNAVAILABLE = -1,
-{{- range $i, $tok := .Tokens}}
-	{{.ID}}{{if eq $i 0}} = 0{{end}},{{if .Comment}}  // {{.Comment}}{{end}}
-{{- end}}
-  NumTokens
-};
-
-constexpr inline std::array<absl::string_view,
-                            static_cast<size_t>(Token::NumTokens)>
-    tokenStr = {
-{{- range .Tokens}}
-	{{if .Comment}}{{str_literal .Comment}}{{else}}{{str_literal .ID}}{{end}},
-{{- end}}
-};
-
-inline std::ostream& operator<<(std::ostream& os, Token tok) {
-  int t = static_cast<int>(tok);
-  if (t >= 0 && t < tokenStr.size()) {
-    return os << tokenStr[t];
-  }
-  return os << "token(" << t << ")";
-}
-
 class Lexer {
  public:
-  using Location = int64_t;  // Byte offset into input buffer.
+{{ if gt (len .Lexer.StartConditions) 1 -}}
+    // Lexer states.
+    enum class State : std::uint32_t {
+{{ range $index, $el := .Lexer.StartConditions -}}
+      {{title .}} = {{$index}},
+{{ end -}}
+    };
+{{ end -}}
 
-  // Init prepares the lexer l to tokenize source by performing the full reset
-  // of the internal state.
+{{block "Location" . -}}
+  struct Location {
+    Location(int64_t b = 0, int64_t e = 0) : begin(b), end(e) {}
+    friend inline std::ostream& operator<<(std::ostream& os, const Location& l) {
+      return os << "[" << l.begin << "-" << l.end << "]";
+    }
+    // Byte offsets into input buffer.
+    int64_t begin;
+    int64_t end;
+  };
+{{end -}}
+
   explicit Lexer(absl::string_view input_source ABSL_ATTRIBUTE_LIFETIME_BOUND);
 
-  // Next finds and returns the next token in source. The source end is
+  // Next finds and returns the next token in source. The stream end is
   // indicated by Token.EOI.
   //
   // The token text can be retrieved later by calling the Text() method.
   ABSL_MUST_USE_RESULT Token Next();
 
-  // Start position of the last token returned by Next().
-  ABSL_MUST_USE_RESULT Location TokenStartLocation() const {
-    return token_offset_;
+  // Location of the last token returned by Next().
+  ABSL_MUST_USE_RESULT Location LastTokenLocation() const {
+    return Location(token_offset_, offset_);
   }
-  // End position of the last token returned by Next().
-  ABSL_MUST_USE_RESULT Location TokenEndLocation() const { return offset_; }
 
-  // Line returns the line number of the last token returned by Next()
+{{- if .Options.TokenLine}}
+  // LastTokenLine returns the line number of the last token returned by Next()
   // (1-based).
-  ABSL_MUST_USE_RESULT int64_t Line() const { return token_line_; }
+  ABSL_MUST_USE_RESULT int64_t LastTokenLine() const { return token_line_; }
+{{- end}}
+{{- if .Options.TokenColumn}}
+  // LastTokenColumn returns the column of the last token returned by Next()
+  // (in bytes, 1-based).
+  ABSL_MUST_USE_RESULT int64_t LastTokenColumn() const { return token_column_; }
+{{- end}}
 
   // Text returns the substring of the input corresponding to the last token.
   ABSL_MUST_USE_RESULT absl::string_view Text() const
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return source_.substr(token_offset_, offset_ - token_offset_);
   }
+
+  void set_state(State state) { start_state_ = state; }
+  ABSL_MUST_USE_RESULT State state() { return start_state_; }
 
  private:
   // Rewind can be used in lexer actions to accept a portion of a scanned token,
@@ -75,18 +77,30 @@ class Lexer {
   absl::string_view source_;
 
   int32_t input_rune_ = 0;    // current character, -1 means end of input
-  int64_t offset_ = 0;        // byte offset
+  int64_t offset_ = 0;        // character offset
   int64_t token_offset_ = 0;  // last token byte offset
+{{- if .Options.TokenLine}}
   int64_t line_ = 1;          // current line number (1-based)
   int64_t token_line_ = 1;    // last token line
+{{- end}}
+{{- if or .Options.TokenLineOffset .Options.TokenColumn}}
+  int64_t line_offset_ = 0;   // current line offset
+{{- end}}
+{{- if .Options.TokenColumn}}
+  int64_t token_column_ = 1;  // last token column (in bytes)
+{{- end}}
   int64_t scan_offset_ = 0;   // scanning byte offset
 
-  int start_state_ = 0;  // lexer state, modifiable
+{{ if gt (len .Lexer.StartConditions) 1 -}}
+  State start_state_ = State::{{title (index .Lexer.StartConditions 0)}};  // lexer state, modifiable
+{{ end -}}
+{{ block "sharedStateVars" .}}{{end -}}
+{{ block "stateVars" .}}{{end -}}
 };
 
 inline std::ostream& operator<<(std::ostream& os, const Lexer& lexer) {
-  return os << "Lexer at line " << lexer.Line() << " location "
-            << lexer.TokenStartLocation() << " last token was \""
+  return os << "{{.Options.Namespace}}::Lexer at line " << lexer.LastTokenLine() << " location "
+            << lexer.LastTokenLocation() << " last token was \""
             << lexer.Text() << "\"";
 }
 

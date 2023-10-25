@@ -23,6 +23,7 @@ type syntaxLoader struct {
 	out      *syntax.Model
 	sets     []*grammar.NamedSet
 	prec     []lalr.Precedence
+	mapping  []syntax.RangeToken
 	expectSR int
 	expectRR int
 
@@ -93,6 +94,17 @@ func (c *syntaxLoader) collectNonterms(p ast.ParserSection) []nontermImpl {
 	for _, part := range p.GrammarPart() {
 		if nonterm, ok := part.(*ast.Nonterm); ok {
 			name := nonterm.Name().Text()
+			if _, ok := nonterm.Extend(); ok {
+				// Nonterminal extensions have to reference an existing one.
+				if index, exists := c.nonterms[name]; exists {
+					ret = append(ret, nontermImpl{index, *nonterm})
+					continue
+				}
+				c.Errorf(nonterm.Name(), "unresolved nonterminal '%v' to extend", name)
+
+				// Note: we keep going here to avoid cascading errors.
+			}
+
 			if _, exists := c.resolver.syms[name]; exists {
 				c.Errorf(nonterm.Name(), "redeclaration of '%v'", name)
 				continue
@@ -117,12 +129,8 @@ func (c *syntaxLoader) collectNonterms(p ast.ParserSection) []nontermImpl {
 				Name:   name,
 				Origin: nonterm.Name(),
 			}
-			if t, ok := nonterm.NontermType(); ok {
-				if rt, _ := t.(*ast.RawType); rt != nil {
-					nt.Type = strings.TrimSuffix(strings.TrimPrefix(rt.Text(), "{"), "}")
-				} else {
-					c.Errorf(t.TmNode(), "unsupported syntax")
-				}
+			if rt, ok := nonterm.RawType(); ok {
+				nt.Type = strings.TrimSuffix(strings.TrimPrefix(rt.Text(), "{"), "}")
 			}
 
 			var seen map[string]bool
@@ -212,6 +220,7 @@ func (c *syntaxLoader) collectInputs(p ast.ParserSection, header status.SourceNo
 
 func (c *syntaxLoader) collectDirectives(p ast.ParserSection) {
 	precTerms := container.NewBitSet(c.resolver.NumTokens)
+	injected := container.NewBitSet(c.resolver.NumTokens)
 	var seenSR, seenRR bool
 
 	for _, part := range p.GrammarPart() {
@@ -278,6 +287,33 @@ func (c *syntaxLoader) collectDirectives(p ast.ParserSection) {
 			}
 			seenRR = true
 			c.expectRR, _ = strconv.Atoi(part.Child(selector.IntegerLiteral).Text())
+		case *ast.DirectiveInject:
+			name := part.Symref().Name()
+			sym, ok := c.resolver.syms[name.Text()]
+			if !ok || sym >= c.resolver.NumTokens {
+				c.Errorf(name, "unresolved reference '%v'", name.Text())
+				break
+			}
+			if injected.Get(sym) {
+				c.Errorf(name, "second %%inject directive for '%v'", name.Text())
+				break
+			}
+			injected.Set(sym)
+			if as, ok := part.ReportClause().ReportAs(); ok {
+				c.Errorf(as, "reporting terminals 'as' some category is not supported")
+			}
+
+			var flags []string
+			for _, id := range part.ReportClause().Flags() {
+				flags = append(flags, id.Text())
+			}
+			c.mapping = append(c.mapping, syntax.RangeToken{
+				Token:  sym,
+				Name:   part.ReportClause().Action().Text(),
+				Flags:  flags,
+				Origin: part,
+			})
+
 		case *ast.DirectiveSet:
 			name := part.Name()
 			if name.Text() == "afterErr" {
@@ -296,6 +332,11 @@ func (c *syntaxLoader) collectDirectives(p ast.ParserSection) {
 				Expr: part.RhsSet().Text(), // Note: this gets replaced later with instantiated names
 			})
 			c.out.Sets = append(c.out.Sets, set)
+		}
+	}
+	for _, mapping := range c.mapping {
+		if _, ok := c.cats[mapping.Name]; ok {
+			c.Errorf(mapping.Origin, "selector clauses (%v) cannot be used with injected terminals", mapping.Name)
 		}
 	}
 }
@@ -935,6 +976,25 @@ func (c *syntaxLoader) load(p ast.ParserSection, header status.SourceNode) {
 		clause, _ := nt.def.ReportClause()
 		defaultReport := c.convertReportClause(clause)
 		expr := c.convertRules(nt.def.Rule0(), c.out.Nonterms[nt.nonterm], defaultReport, true /*topLevel*/, nt.def)
-		c.out.Nonterms[nt.nonterm].Value = expr
+		c.out.Nonterms[nt.nonterm].Value = or(c.out.Nonterms[nt.nonterm].Value, expr)
 	}
+}
+
+func or(a, b *syntax.Expr) *syntax.Expr {
+	switch {
+	case a == nil:
+		return b
+	case b == nil:
+		return a
+	case a.Kind == syntax.Choice && b.Kind == syntax.Choice:
+		a.Sub = append(a.Sub, b.Sub...)
+		return a
+	case a.Kind == syntax.Choice:
+		a.Sub = append(a.Sub, b)
+		return a
+	case b.Kind == syntax.Choice:
+		b.Sub = append([]*syntax.Expr{a}, b.Sub...)
+		return b
+	}
+	return &syntax.Expr{Kind: syntax.Choice, Sub: []*syntax.Expr{a, b}, Origin: b.Origin}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/inspirer/textmapper/lalr"
 	"github.com/inspirer/textmapper/lex"
@@ -144,7 +145,9 @@ type Lexer struct {
 	ClassActions    []ClassAction
 	Actions         []SemanticAction
 	InvalidToken    int
-	RuleToken       []int // maps actions into tokens; empty if the mapping is 1:1
+	RuleToken       []int               // maps actions into tokens; empty if the mapping is 1:1
+	MappedTokens    []syntax.RangeToken // TODO move into Parser
+	UsedFlags       []string            // list of used flags inside mapped tokens
 }
 
 // Rule is a parser rule with a semantic action.
@@ -161,12 +164,47 @@ type Parser struct {
 	Rules        []*Rule
 	Tables       *lalr.Tables
 	Actions      []SemanticAction
-	UsesFlags    bool
+	UsedFlags    []string
 	Types        *syntax.Types
-	MappedTokens []syntax.RangeToken
 	IsRecovering bool
 	ErrorSymbol  int
 	NumTerminals int
+}
+
+func (p *Parser) TableStats() string {
+	var b strings.Builder
+
+	t := p.Tables
+	if t == nil {
+		return "No tables\n"
+	}
+
+	fmt.Fprintf(&b, "LALR:\n\t%v terminals, %v nonterminals, %v rules, %v states, %v markers, %v lookaheads\n", p.NumTerminals, len(p.Nonterms), len(t.RuleLen), t.NumStates, len(t.Markers), len(t.Lookaheads))
+	fmt.Fprintf(&b, "Action Table:\n\t%d x %d, expanded size = %.1f KB\n", t.NumStates, p.NumTerminals, float64(t.NumStates*p.NumTerminals*4)/1024.)
+	var lr0, nonZero, total int
+	for _, val := range t.Action {
+		if val >= -2 {
+			lr0++
+			continue
+		}
+		total += p.NumTerminals
+		for a := -3 - val; t.Lalr[a] >= 0; a += 2 {
+			if t.Lalr[a+1] >= 0 {
+				nonZero++
+			}
+		}
+	}
+	fmt.Fprintf(&b, "\tLR0 states: %v (%.2v%%)\n", lr0, float64(lr0*100)/float64(t.NumStates))
+	fmt.Fprintf(&b, "\t%.2v%% of the LALR table is reductions (%.1f KB)\n", float64(nonZero*100)/float64(total), float64(nonZero*4)/1024.)
+
+	syms := p.NumTerminals + len(p.Nonterms)
+	fmt.Fprintf(&b, "Goto Table:\n\t%d x %d, expanded size = %.1f KB\n", t.NumStates, syms, float64(t.NumStates*syms*4)/float64(1024))
+
+	nonZero = len(t.FromTo) / 2
+	total = t.NumStates * syms
+	fmt.Fprintf(&b, "\t%.2v%% of the GOTO table is populated (%.1f KB)\n", float64(nonZero*100)/float64(total), float64(nonZero*4)/1024.)
+
+	return b.String()
 }
 
 // Options carries grammar generation parameters.
@@ -181,10 +219,13 @@ type Options struct {
 	NonBacktracking bool
 
 	// Parser features.
+	GenParser           bool // true by default
 	Cancellable         bool // Go-specific.
 	RecursiveLookaheads bool
 	DebugParser         bool
 	WriteBison          bool // Output the expanded grammar in a Bison-like format.
+	OptimizeTables      bool
+	DefaultReduce       bool // Prefer some common reduction to errors in non-LR0 states to compress tables even further.
 
 	// AST generation. Go-specific for now.
 	EventBased    bool
@@ -195,6 +236,7 @@ type Options struct {
 	ReportTokens  []int // Tokens that should appear in the AST.
 	ExtraTypes    []syntax.ExtraType
 	FileNode      string // The top-level node gets the byte range of the whole input.
+	NodePrefix    string // Prefix for node types.
 
 	// Go.
 	Package          string
@@ -203,4 +245,8 @@ type Options struct {
 	// C++
 	Namespace          string
 	IncludeGuardPrefix string
+	FilenamePrefix     string
+	AbslIncludePrefix  string   // "absl" by default
+	DirIncludePrefix   string   // for generated headers
+	ParseParams        []string // parser fields initialized in the constructor
 }

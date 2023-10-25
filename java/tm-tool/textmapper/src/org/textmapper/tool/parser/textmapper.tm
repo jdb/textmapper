@@ -85,6 +85,7 @@ error:
 ID: /[a-zA-Z_]([a-zA-Z_\-0-9]*[a-zA-Z_0-9])?|'([^\n\\']|\\.)*'/  (class)
 
 'as':        /as/
+'extend':    /extend/
 'false':     /false/
 'implements':/implements/
 'import':    /import/
@@ -234,7 +235,7 @@ start_conditions :
 ;
 
 lexeme :
-    start_conditions? name=identifier rawTypeopt ':'
+    start_conditions? name=identifier rawTypeopt reportClause? ':'
         (pattern priority=iconopt attrs=lexeme_attrsopt commandopt | attrs=lexeme_attrs)? ;
 
 lexeme_attrs :
@@ -273,7 +274,7 @@ grammar_part :
 ;
 
 nonterm :
-    annotations? name=identifier params=nonterm_params? type=nonterm_type?
+    annotations? 'extend'? name=identifier params=nonterm_params? type=nonterm_type?
           defaultAction=reportClause? ':' rules ';' ;
 
 nonterm_type interface :

@@ -31,6 +31,7 @@ var testFiles = []string{
 	"conflict1.tmerr",
 	"lr0.tmerr",
 	"greedy.tmerr",
+	"inject.tmerr",
 }
 
 func TestErrors(t *testing.T) {
@@ -45,11 +46,6 @@ func TestErrors(t *testing.T) {
 		for _, compat := range []bool{true, false} {
 			inp := string(content)
 			pt := parsertest.New(t, fmt.Sprintf("%v (compat=%v)", file, compat), inp)
-			tree, err := ast.Parse(ctx, file, pt.Source(), tm.StopOnFirstError)
-			if err != nil {
-				t.Errorf("parsing failed with %v\n%v", err, inp)
-				continue
-			}
 
 			var want []string
 			for _, line := range strings.Split(inp, "\n") {
@@ -63,7 +59,7 @@ func TestErrors(t *testing.T) {
 			}
 
 			var got []string
-			_, err = Compile(ast.File{Node: tree.Root()}, compat)
+			_, err = Compile(ctx, file, pt.Source(), Params{Compat: compat})
 			if err != nil {
 				s := status.FromError(err)
 				s.Sort()
@@ -115,7 +111,7 @@ func TestSourceModel(t *testing.T) {
 		// Resolve terminal references.
 		opts.resolve(resolver)
 
-		c := newCompiler(file, opts.out, lexer.out, resolver, compat, &s)
+		c := newCompiler(file, opts.out, lexer.out, resolver, Params{Compat: compat}, &s)
 		c.compileParser(file)
 
 		if s.Err() != nil {

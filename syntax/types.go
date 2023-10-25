@@ -8,6 +8,7 @@ import (
 	"github.com/inspirer/textmapper/status"
 	"github.com/inspirer/textmapper/util/container"
 	"github.com/inspirer/textmapper/util/graph"
+	"github.com/inspirer/textmapper/util/ident"
 	"github.com/inspirer/textmapper/util/set"
 )
 
@@ -19,8 +20,20 @@ type Types struct {
 
 // RangeToken maps a terminal to an AST node.
 type RangeToken struct {
-	Token int
-	Name  string
+	Token  int
+	Name   string
+	Flags  []string
+	Origin status.SourceNode
+}
+
+func (t RangeToken) String() string {
+	if t.Name == "" {
+		return "<unmapped>"
+	}
+	if len(t.Flags) == 0 {
+		return t.Name
+	}
+	return t.Name + "/" + strings.Join(t.Flags, ",")
 }
 
 // Category describes a class of AST nodes that can be treated uniformly.
@@ -47,6 +60,19 @@ type RangeType struct {
 	Fields []RangeField
 }
 
+func (t *RangeType) DecodeField(i int) []RangeField {
+	var ret []RangeField
+	for i >= 0 {
+		field := t.Fields[i]
+		ret = append(ret, field)
+		i = field.FetchAfter
+	}
+	for i, j := 0, len(ret)-1; i < j; i, j = i+1, j-1 {
+		ret[i], ret[j] = ret[j], ret[i]
+	}
+	return ret
+}
+
 // Descriptor returns a short descriptor of the field.
 func (t *RangeType) Descriptor() string {
 	var sb strings.Builder
@@ -64,7 +90,7 @@ func (t *RangeType) Descriptor() string {
 type RangeField struct {
 	Name       string
 	Selector   []string // lists nested range types and categories, sorted
-	FetchAfter int      // when non-zero, this field should be fetched as a sibling of another field
+	FetchAfter int      // when non-negative, this field should be fetched as a sibling of another field
 	IsRequired bool     // present in all ASTs
 	IsList     bool
 	Origin     status.SourceNode
@@ -402,7 +428,7 @@ func (c *typeCollector) resolveFields() {
 		var fields []RangeField
 		for i, f := range p.fields {
 			out := RangeField{
-				Name:       f.name,
+				Name:       ident.Produce(f.name, ident.CamelLower),
 				Selector:   f.types,
 				IsRequired: !f.nullable,
 				IsList:     f.isList,

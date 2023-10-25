@@ -8,9 +8,12 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/inspirer/textmapper/grammar"
 	"github.com/inspirer/textmapper/status"
+	"github.com/inspirer/textmapper/syntax"
 )
 
 var funcMap = template.FuncMap{
@@ -21,20 +24,38 @@ var funcMap = template.FuncMap{
 	"str_literal":         strconv.Quote,
 	"title":               strings.Title,
 	"lower":               strings.ToLower,
+	"first_lower":         firstLower,
+	"has_prefix":          strings.HasPrefix,
 	"sum":                 sum,
 	"string_switch":       asStringSwitch,
 	"quote":               strconv.Quote,
 	"join":                strings.Join,
+	"concat":              concat,
 	"lexer_action":        lexerAction,
 	"ref":                 ref,
 	"minus1":              minus1,
 	"go_parser_action":    goParserAction,
+	"cc_parser_action":    ccParserAction,
 	"bison_parser_action": bisonParserAction,
 	"short_pkg":           shortPkg,
+	"list":                func(vals ...string) []string { return vals },
+	"set":                 set,
+	"additionalTypes":     additionalTypes,
+	"last_id":             lastID,
+	"escape_reserved":     escapeReserved,
+	"unwrap_with_default": unwrapWithDefault,
 }
 
 func sum(a, b int) int {
 	return a + b
+}
+
+func firstLower(s string) string {
+	r, w := utf8.DecodeRuneInString(s)
+	if r != utf8.RuneError {
+		return string(utf8.AppendRune(nil, unicode.ToLower(r))) + s[w:]
+	}
+	return s
 }
 
 func hex(val uint32) string {
@@ -154,6 +175,10 @@ func stringHash(s string) uint32 {
 	return hash
 }
 
+func concat(a, b string) string {
+	return a + b
+}
+
 func lexerAction(s string) string {
 	return strings.Replace(s, "$$", "l.value", -1)
 }
@@ -259,6 +284,89 @@ func goParserAction(s string, args *grammar.ActionVars, origin status.SourceNode
 		}
 	}
 	return decls.String() + sb.String(), nil
+}
+
+func ccParserAction(s string, args *grammar.ActionVars, origin status.SourceNode) (ret string, err error) {
+	defer func(s string) {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("crashed with %v in %q with %v", err, s, args)
+		}
+	}(s)
+
+	var sb strings.Builder
+	for len(s) > 0 {
+		next := strings.IndexAny(s, "@$")
+		if next == -1 {
+			sb.WriteString(s)
+			break
+		}
+
+		ch := s[next]
+		sb.WriteString(s[:next])
+		s = s[next+1:]
+		if len(s) == 0 {
+			return "", status.Errorf(origin, "found $ or @ at the end of the semantic action")
+		}
+
+		// Handle the rest of this '$' or '@'
+		var target, prop string
+		if s[0] == '$' {
+			// $$ --> lhs.value
+			target = "lhs"
+			if ch == '@' {
+				prop = "sym.location"
+			} else {
+				t := args.LHSType
+				if t == "" {
+					return "", status.Errorf(origin, "$$ cannot be used inside a nonterminal semantic action without a type")
+				}
+				prop = "value." + lastID(t)
+			}
+			s = s[1:]
+		} else {
+			var d int
+			r, w := utf8.DecodeRuneInString(s)
+			for unicode.IsDigit(r) || unicode.IsLetter(r) || r == '_' {
+				d += w
+				r, w = utf8.DecodeRuneInString(s[d:])
+			}
+			if d == 0 {
+				return "", status.Errorf(origin, "%c should be followed by a number or identifier", ch)
+			}
+			val := s[:d]
+			s = s[d:]
+			var index int
+			if pos, err := strconv.Atoi(val); err == nil {
+				if pos < 1 || pos >= args.CmdArgs.MaxPos {
+					// Index out of range.
+					return "", status.Errorf(origin, "out of bounds reference %c%v [max = %v]", ch, val, args.CmdArgs.MaxPos)
+				}
+				index = pos - 1
+			} else {
+				// Resolve by name
+				var ok bool
+				index, ok = args.Resolve(val)
+				if !ok {
+					return "", status.Errorf(origin, "invalid reference %c%q", ch, val)
+				}
+			}
+
+			target = fmt.Sprintf("rhs[%v]", index)
+			if ch == '@' {
+				prop = "sym.location"
+			} else {
+				t := args.Types[index]
+				if t == "" {
+					return "", status.Errorf(origin, "%c%q does not have an associated type", ch, val)
+				}
+				prop = "value." + lastID(t)
+			}
+		}
+		sb.WriteString(target)
+		sb.WriteByte('.')
+		sb.WriteString(prop)
+	}
+	return sb.String(), nil
 }
 
 func bisonParserAction(s string, args *grammar.ActionVars, origin status.SourceNode) (string, error) {
@@ -394,4 +502,85 @@ func shortPkg(packageName string) string {
 		return packageName[i+1:]
 	}
 	return packageName
+}
+
+func set(vals ...string) map[string]bool {
+	ret := make(map[string]bool)
+	for _, val := range vals {
+		for _, s := range strings.Fields(val) {
+			ret[s] = true
+		}
+	}
+	return ret
+}
+
+// additionalTypes takes a list of additional node types, such as whitespace, punctuation, etc, and returns
+// those of them that have not been deduced from the AST.
+func additionalTypes(t *syntax.Types, names []string) []string {
+	m := make(map[string]bool)
+	for _, cat := range t.Categories {
+		m[cat.Name] = true
+	}
+	for _, t := range t.RangeTypes {
+		m[t.Name] = true
+	}
+	var ret []string
+	for _, name := range names {
+		if !m[name] {
+			ret = append(ret, name)
+		}
+	}
+	return ret
+}
+
+func lastID(s string) string {
+	s = strings.TrimSpace(s)
+	start := len(s)
+	for {
+		r, d := utf8.DecodeLastRuneInString(s[:start])
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' {
+			break
+		}
+		start -= d
+	}
+	return s[start:]
+}
+
+var reserved = asSet(
+	// Go reserved keywords.
+	"break", "default", "func", "interface", "select",
+	"case", "defer", "go", "map", "struct",
+	"chan", "else", "goto", "package", "switch",
+	"const", "fallthrough", "if", "range", "type",
+	"continue", "for", "import", "return", "var",
+
+	// Go builtins.
+	"bool", "string", "byte", "int", "rune",
+	"iota", "nil", "true", "false",
+	"fmt", "strconv",
+
+	// Textmapper-reserved
+	"Token", "Nonterminal", "Pos", "Node", "Offset", "Endoffset", "Start", "End",
+)
+
+func asSet(list ...string) map[string]bool {
+	ret := make(map[string]bool)
+	for _, id := range list {
+		ret[id] = true
+	}
+	return ret
+}
+
+func escapeReserved(s string) string {
+	if reserved[s] {
+		return "_" + s
+	}
+	return s
+}
+
+func unwrapWithDefault(s []string, def string) string {
+	if len(s) == 1 {
+		return s[0]
+	}
+	return def
 }

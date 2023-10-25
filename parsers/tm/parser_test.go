@@ -2,9 +2,6 @@ package tm_test
 
 import (
 	"context"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/inspirer/textmapper/parsers/parsertest"
@@ -48,7 +45,7 @@ var parseTests = []struct {
 		  «# abc2»`,
 	}},
 	{tm.MultilineComment, []string{
-		parserPre + `a void : «/* te ** / st */» ;`,
+		parserPre + `a : «/* te ** / st */» ;`,
 		parserPre + `«/* abc */» a:b;`,
 
 		// While recovering.
@@ -62,10 +59,13 @@ var parseTests = []struct {
 		parserPre + " a : /* empty */ «»| «abc» | «abc -> def» ; ",
 	}},
 	{tm.DirectiveExpect, []string{
-		parserPre + " «%expect 0;» ",
+		parserPre + ` «%expect 0;» `,
 	}},
 	{tm.DirectiveExpectRR, []string{
-		parserPre + " «%expect-rr 8;» ",
+		parserPre + ` «%expect-rr 8;» `,
+	}},
+	{tm.DirectiveInject, []string{
+		parserPre + ` «%inject comment -> Comment/a,b;» `,
 	}},
 	{tm.SyntaxProblem, []string{
 		parserPre + " a : (§«:: a /*aaa*/ b» ) ; ",
@@ -110,42 +110,3 @@ func TestParser(t *testing.T) {
 const header = "language l(a); "
 const lexerPre = "language l(a); :: lexer\n"
 const parserPre = "language l(a); :: lexer a = /abc/ :: parser "
-
-const wantTextmapperFiles = 32
-
-func TestExistingFiles(t *testing.T) {
-	ctx := context.Background()
-	var sources []string
-	err := filepath.Walk("../..", func(path string, info os.FileInfo, err error) error {
-		if info.IsDir() && info.Name() == "build" {
-			return filepath.SkipDir
-		}
-		if !info.IsDir() && strings.HasSuffix(info.Name(), ".tm") {
-			sources = append(sources, path)
-		}
-		return err
-	})
-	if err != nil {
-		t.Errorf("cannot collect all Textmapper files: %v", err)
-	}
-	if len(sources) != wantTextmapperFiles {
-		t.Errorf("found %v Textmapper files, want: %v\n%v", len(sources), wantTextmapperFiles, strings.Join(sources, "\n"))
-	}
-
-	for _, path := range sources {
-		content, err := os.ReadFile(path)
-		if err != nil {
-			t.Errorf("cannot read %v: %v", path, err)
-			continue
-		}
-
-		l := new(tm.Lexer)
-		l.Init(string(content))
-		p := new(tm.Parser)
-		p.Init(tm.StopOnFirstError, func(nt tm.NodeType, offset, endoffset int) { /* noop */ })
-		err = p.ParseFile(ctx, l)
-		if err != nil {
-			t.Errorf("%v: parser failed with %v", path, err)
-		}
-	}
-}

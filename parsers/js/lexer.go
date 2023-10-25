@@ -38,7 +38,7 @@ type Lexer struct {
 
 	ch          rune // current character, -1 means EOI
 	offset      int  // character offset
-	tokenOffset int  // last token offset
+	tokenOffset int  // last token byte offset
 	line        int  // current line number (1-based)
 	tokenLine   int  // last token line
 	scanOffset  int  // scanning offset
@@ -99,7 +99,6 @@ restart:
 		state = int(tmLexerAction[state*tmNumClasses+ch])
 		if state > tmFirstRule {
 			hash = hash*uint32(31) + uint32(l.ch)
-
 			if l.ch == '\n' {
 				l.line++
 			}

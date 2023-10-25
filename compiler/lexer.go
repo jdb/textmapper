@@ -9,6 +9,7 @@ import (
 	"github.com/inspirer/textmapper/lex"
 	"github.com/inspirer/textmapper/parsers/tm/ast"
 	"github.com/inspirer/textmapper/status"
+	"github.com/inspirer/textmapper/syntax"
 	"github.com/inspirer/textmapper/util/container"
 )
 
@@ -28,6 +29,8 @@ type lexerCompiler struct {
 	rules       []*lex.Rule
 	codeRule    map[symRule]int   // -> index in c.out.Lexer.RuleToken
 	codeAction  map[symAction]int // -> index in c.out.Lexer.Actions
+	mapping     map[int]syntax.RangeToken
+	injected    map[string]bool
 }
 
 func newLexerCompiler(options *optionsParser, resolver *resolver, compat bool, s *status.Status) *lexerCompiler {
@@ -40,6 +43,8 @@ func newLexerCompiler(options *optionsParser, resolver *resolver, compat bool, s
 
 		codeRule:   make(map[symRule]int),
 		codeAction: make(map[symAction]int),
+		mapping:    make(map[int]syntax.RangeToken),
+		injected:   make(map[string]bool),
 	}
 }
 
@@ -48,6 +53,23 @@ func (c *lexerCompiler) compile(file ast.File) {
 
 	eoi := c.resolver.addToken(grammar.Eoi, "EOI", ast.RawType{}, noSpace, nil)
 	out.InvalidToken = c.resolver.addToken(grammar.InvalidToken, "INVALID_TOKEN", ast.RawType{}, noSpace, nil)
+
+	if p, ok := file.Parser(); ok {
+		// Some (space) tokens may be injected into the AST by the parser. We should
+		// return them from the lexer despite their space attribute.
+		for _, part := range p.GrammarPart() {
+			if part, ok := part.(*ast.DirectiveInject); ok {
+				if name := part.Symref().Name().Text(); name != "" {
+					c.injected[name] = true
+				}
+			}
+		}
+
+		// TODO remove this
+		for _, reported := range c.options.reportList {
+			c.injected[reported.Text()] = true
+		}
+	}
 
 	c.collectStartConds(file)
 	lexer, _ := file.Lexer()
@@ -119,6 +141,7 @@ func (c *lexerCompiler) canInlineRules() bool {
 	seen := container.NewBitSet(c.resolver.NumTokens)
 	for _, e := range c.out.RuleToken {
 		if e < 2 || seen.Get(e) {
+			// Explicit rules for InvalidToken or EOI cannot be inlined.
 			return false
 		}
 		seen.Set(e)
@@ -201,14 +224,15 @@ func (c *lexerCompiler) addLexerAction(cmd ast.Command, space, class ast.LexemeA
 	if !cmd.IsValid() && !space.IsValid() && !class.IsValid() && !c.compat {
 		if sym == int(lex.EOI) {
 			return -1
-		} else if sym == c.out.InvalidToken {
-			return -2
 		}
+		// Note: -2 is a dedicated action for implicitly discovered invalid tokens which
+		// triggers backtracking. Here we handle an explicitly declared invalid token, so
+		// we need a separate action.
 	}
 
 	out := c.out
-	key := symRule{code: cmd.Text(), space: space.IsValid(), class: class.IsValid(), sym: sym}
-	if a, ok := c.codeRule[key]; ok && !c.compat {
+	key := symRule{code: cmd.Text(), space: space.IsValid(), sym: sym}
+	if a, ok := c.codeRule[key]; ok && !class.IsValid() && !c.compat {
 		if ca, ok := c.codeAction[symAction{key.code, key.space}]; ok && comment != "" {
 			out.Actions[ca].Comments = append(out.Actions[ca].Comments, comment)
 		}
@@ -216,7 +240,10 @@ func (c *lexerCompiler) addLexerAction(cmd ast.Command, space, class ast.LexemeA
 	}
 	a := len(out.RuleToken)
 	out.RuleToken = append(out.RuleToken, sym)
-	c.codeRule[key] = a
+	if !class.IsValid() {
+		// Never merge (class) rules, even if they seem identical.
+		c.codeRule[key] = a
+	}
 
 	if !cmd.IsValid() && !space.IsValid() {
 		return a
@@ -230,7 +257,10 @@ func (c *lexerCompiler) addLexerAction(cmd ast.Command, space, class ast.LexemeA
 	} else {
 		act.Origin = space
 	}
-	c.codeAction[symAction{key.code, key.space}] = len(out.Actions)
+	if !class.IsValid() {
+		// Never merge (class) rules, even if they seem identical.
+		c.codeAction[symAction{key.code, key.space}] = len(out.Actions)
+	}
 	out.Actions = append(out.Actions, act)
 	return a
 }
@@ -262,6 +292,22 @@ func (c *lexerCompiler) traverseLexer(parts []ast.LexerPart, defaultSCs []int, p
 
 			name := p.Name().Text()
 			tok := c.resolver.addToken(name, "" /*id*/, rawType, space, p.Name())
+
+			// Handle token mappings.
+			rt := c.resolveMapping(tok, p)
+			prev, prevOK := c.mapping[tok]
+			switch {
+			case prevOK:
+				if rt.Name != prev.Name || !eq(rt.Flags, prev.Flags) {
+					c.Errorf(p.Name(), "inconsistent token mapping for %v: was %v", name, prev)
+				}
+			case rt.Name != "":
+				c.out.MappedTokens = append(c.out.MappedTokens, rt)
+				fallthrough
+			default:
+				c.mapping[tok] = rt
+			}
+
 			pat, ok := p.Pattern()
 			if !ok {
 				break
@@ -288,7 +334,7 @@ func (c *lexerCompiler) traverseLexer(parts []ast.LexerPart, defaultSCs []int, p
 			}
 
 			cmd, _ := p.Command()
-			if c.options.reportTokens[name] && space.IsValid() {
+			if c.injected[name] && space.IsValid() {
 				// This token needs to be reported from the lexer to appear in the AST. It will be ignored
 				// in the parser.
 				space = noSpace
@@ -313,6 +359,26 @@ func (c *lexerCompiler) traverseLexer(parts []ast.LexerPart, defaultSCs []int, p
 			}
 		}
 	}
+}
+
+func (c *lexerCompiler) resolveMapping(tok int, lexeme *ast.Lexeme) syntax.RangeToken {
+	n, ok := lexeme.ReportClause()
+	if !ok {
+		return syntax.RangeToken{Token: tok}
+	}
+
+	name := n.Action().Text()
+	if len(name) == 0 {
+		return syntax.RangeToken{Token: tok}
+	}
+	var flags []string
+	for _, id := range n.Flags() {
+		flags = append(flags, id.Text())
+	}
+	if as, ok := n.ReportAs(); ok {
+		c.Errorf(as, "reporting terminals 'as' some category is not supported")
+	}
+	return syntax.RangeToken{Token: tok, Name: name, Flags: flags}
 }
 
 func (c *lexerCompiler) resolveTokenComments() {
@@ -460,4 +526,17 @@ func parsePattern(name string, p ast.Pattern) (*lex.Pattern, error) {
 	}
 	ret.RE = re
 	return ret, nil
+}
+
+func eq(a, b []string) bool {
+	// TODO replace with slices.Equal
+	if len(a) != len(b) {
+		return false
+	}
+	for i, v := range a {
+		if v != b[i] {
+			return false
+		}
+	}
+	return true
 }

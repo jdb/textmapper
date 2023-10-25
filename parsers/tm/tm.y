@@ -45,7 +45,6 @@
 %token ID
 %token AS
 %token FALSE
-%token IMPLEMENTS
 %token IMPORT
 %token SEPARATOR
 %token SET
@@ -57,9 +56,11 @@
 %token EXPECT
 %token EXPECTMINUSRR
 %token EXPLICIT
+%token EXTEND
 %token FLAG
 %token GENERATE
 %token GLOBAL
+%token INJECT
 %token INLINE
 %token INPUT
 %token INTERFACE
@@ -75,12 +76,10 @@
 %token PARAM
 %token PARSER
 %token PREC
-%token RETURNS
 %token RIGHT
 %token CHAR_S
 %token SHIFT
 %token SPACE
-%token VOID
 %token CHAR_X
 %token CODE
 %token LBRACE
@@ -95,7 +94,6 @@ identifier :
 | INLINE
 | PREC
 | SHIFT
-| RETURNS
 | INPUT
 | LEFT
 | RIGHT
@@ -116,8 +114,9 @@ identifier :
 | EXPECTMINUSRR
 | CLASS
 | INTERFACE
-| VOID
 | SPACE
+| EXTEND
+| INJECT
 | LAYOUT
 | LANGUAGE
 | LALR
@@ -131,7 +130,6 @@ identifier_Keywords :
 | INLINE
 | PREC
 | SHIFT
-| RETURNS
 | INPUT
 | LEFT
 | RIGHT
@@ -152,8 +150,9 @@ identifier_Keywords :
 | EXPECTMINUSRR
 | CLASS
 | INTERFACE
-| VOID
 | SPACE
+| EXTEND
+| INJECT
 | LAYOUT
 | LANGUAGE
 | LALR
@@ -293,7 +292,17 @@ stateref_list_Comma_separated :
 ;
 
 lexeme :
-  start_conditions identifier rawTypeopt COLON pattern integer_literal lexeme_attrs command
+  start_conditions identifier rawTypeopt reportClause COLON pattern integer_literal lexeme_attrs command
+| start_conditions identifier rawTypeopt reportClause COLON pattern integer_literal lexeme_attrs
+| start_conditions identifier rawTypeopt reportClause COLON pattern integer_literal command
+| start_conditions identifier rawTypeopt reportClause COLON pattern integer_literal
+| start_conditions identifier rawTypeopt reportClause COLON pattern lexeme_attrs command
+| start_conditions identifier rawTypeopt reportClause COLON pattern lexeme_attrs
+| start_conditions identifier rawTypeopt reportClause COLON pattern command
+| start_conditions identifier rawTypeopt reportClause COLON pattern
+| start_conditions identifier rawTypeopt reportClause COLON lexeme_attrs
+| start_conditions identifier rawTypeopt reportClause COLON
+| start_conditions identifier rawTypeopt COLON pattern integer_literal lexeme_attrs command
 | start_conditions identifier rawTypeopt COLON pattern integer_literal lexeme_attrs
 | start_conditions identifier rawTypeopt COLON pattern integer_literal command
 | start_conditions identifier rawTypeopt COLON pattern integer_literal
@@ -303,6 +312,16 @@ lexeme :
 | start_conditions identifier rawTypeopt COLON pattern
 | start_conditions identifier rawTypeopt COLON lexeme_attrs
 | start_conditions identifier rawTypeopt COLON
+| identifier rawTypeopt reportClause COLON pattern integer_literal lexeme_attrs command
+| identifier rawTypeopt reportClause COLON pattern integer_literal lexeme_attrs
+| identifier rawTypeopt reportClause COLON pattern integer_literal command
+| identifier rawTypeopt reportClause COLON pattern integer_literal
+| identifier rawTypeopt reportClause COLON pattern lexeme_attrs command
+| identifier rawTypeopt reportClause COLON pattern lexeme_attrs
+| identifier rawTypeopt reportClause COLON pattern command
+| identifier rawTypeopt reportClause COLON pattern
+| identifier rawTypeopt reportClause COLON lexeme_attrs
+| identifier rawTypeopt reportClause COLON
 | identifier rawTypeopt COLON pattern integer_literal lexeme_attrs command
 | identifier rawTypeopt COLON pattern integer_literal lexeme_attrs
 | identifier rawTypeopt COLON pattern integer_literal command
@@ -363,35 +382,24 @@ grammar_part_OrSyntaxError :
 ;
 
 nonterm :
-  annotations identifier nonterm_params nonterm_type reportClause COLON rules SEMICOLON
-| annotations identifier nonterm_params nonterm_type COLON rules SEMICOLON
+  annotations identifier nonterm_params rawType reportClause COLON rules SEMICOLON
+| annotations identifier nonterm_params rawType COLON rules SEMICOLON
 | annotations identifier nonterm_params reportClause COLON rules SEMICOLON
 | annotations identifier nonterm_params COLON rules SEMICOLON
-| annotations identifier nonterm_type reportClause COLON rules SEMICOLON
-| annotations identifier nonterm_type COLON rules SEMICOLON
+| annotations identifier rawType reportClause COLON rules SEMICOLON
+| annotations identifier rawType COLON rules SEMICOLON
 | annotations identifier reportClause COLON rules SEMICOLON
 | annotations identifier COLON rules SEMICOLON
-| identifier nonterm_params nonterm_type reportClause COLON rules SEMICOLON
-| identifier nonterm_params nonterm_type COLON rules SEMICOLON
+| identifier nonterm_params rawType reportClause COLON rules SEMICOLON
+| identifier nonterm_params rawType COLON rules SEMICOLON
 | identifier nonterm_params reportClause COLON rules SEMICOLON
 | identifier nonterm_params COLON rules SEMICOLON
-| identifier nonterm_type reportClause COLON rules SEMICOLON
-| identifier nonterm_type COLON rules SEMICOLON
+| identifier rawType reportClause COLON rules SEMICOLON
+| identifier rawType COLON rules SEMICOLON
 | identifier reportClause COLON rules SEMICOLON
 | identifier COLON rules SEMICOLON
-;
-
-nonterm_type :
-  RETURNS symref
-| INTERFACE
-| CLASS implements_clause
-| CLASS
-| VOID
-| rawType
-;
-
-implements_clause :
-  IMPLEMENTS references_cs
+| EXTEND identifier reportClause COLON rules SEMICOLON
+| EXTEND identifier COLON rules SEMICOLON
 ;
 
 assoc :
@@ -422,6 +430,7 @@ directive :
 | REM GENERATE identifier ASSIGN rhsSet SEMICOLON
 | REM EXPECT integer_literal SEMICOLON
 | REM EXPECTMINUSRR integer_literal SEMICOLON
+| REM INJECT symref reportClause SEMICOLON
 ;
 
 identifier_list_Comma_separated :
@@ -442,11 +451,6 @@ inputref :
 references :
   symref
 | references symref
-;
-
-references_cs :
-  symref
-| references_cs COMMA symref
 ;
 
 rules :

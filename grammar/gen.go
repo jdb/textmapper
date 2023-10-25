@@ -60,6 +60,18 @@ func (p *Parser) HasAssocValues() bool {
 	return false
 }
 
+func (p *Parser) UnionFields() []string {
+	var ret []string
+	seen := make(map[string]bool)
+	for _, nt := range p.Nonterms {
+		if nt.Type != "" && !seen[nt.Type] {
+			ret = append(ret, nt.Type)
+			seen[nt.Type] = true
+		}
+	}
+	return ret
+}
+
 func (p *Parser) HasInputAssocValues() bool {
 	for _, inp := range p.Inputs {
 		if p.Nonterms[inp.Nonterm].Type != "" {
@@ -118,18 +130,18 @@ func (g *Grammar) TokensWithoutPrec() []Symbol {
 // ReportTokens returns a list of tokens that need to be injected into the AST.
 func (g *Grammar) ReportTokens(space bool) []Symbol {
 	var ret []Symbol
-	for _, t := range g.Options.ReportTokens {
-		isSpace := g.Syms[t].Space || g.Syms[t].Name == "invalid_token"
+	for _, t := range g.Lexer.MappedTokens {
+		isSpace := g.Syms[t.Token].Space || g.Syms[t.Token].Name == "invalid_token"
 		if isSpace == space {
-			ret = append(ret, g.Syms[t])
+			ret = append(ret, g.Syms[t.Token])
 		}
 	}
 	return ret
 }
 
 func (g *Grammar) ReportsInvalidToken() bool {
-	for _, t := range g.Options.ReportTokens {
-		if g.Syms[t].Name == "invalid_token" {
+	for _, t := range g.Lexer.MappedTokens {
+		if g.Syms[t.Token].Name == "invalid_token" {
 			return true
 		}
 	}
@@ -222,4 +234,24 @@ func (g *Grammar) HasTrailingNulls(r Rule) bool {
 		return g.Syms[sym].CanBeNull
 	}
 	return false
+}
+
+func (g *Grammar) AllFlags() []string {
+	var ret []string
+	ret = append(ret, g.Lexer.UsedFlags...)
+	ret = append(ret, g.Parser.UsedFlags...)
+	sort.Strings(ret)
+
+	// Remove duplicates.
+	var prev string
+	in := ret
+	ret = ret[:0]
+	for _, str := range in {
+		if str == prev {
+			continue
+		}
+		prev = str
+		ret = append(ret, str)
+	}
+	return ret
 }

@@ -68,11 +68,11 @@ const (
 )
 
 func (p *Parser) ParseFile(ctx context.Context, lexer *Lexer) error {
-	return p.parse(ctx, 0, 509, lexer)
+	return p.parse(ctx, 0, 532, lexer)
 }
 
 func (p *Parser) ParseNonterm(ctx context.Context, lexer *Lexer) error {
-	return p.parse(ctx, 1, 510, lexer)
+	return p.parse(ctx, 1, 533, lexer)
 }
 
 func (p *Parser) parse(ctx context.Context, start, end int16, lexer *Lexer) error {
@@ -203,13 +203,17 @@ func (p *Parser) parse(ctx context.Context, start, end int16, lexer *Lexer) erro
 
 const errSymbol = 38
 
-// willShift checks if "symbol" is going to be shifted in the given state.
-// This function does not support empty productions and returns false if they occur before "symbol".
-func (p *Parser) willShift(stackPos int, state int16, symbol int32, stack []stackEntry) bool {
+// willShift checks if "symbol" is going to be shifted in the `stack+[state]` parsing stack.
+func (p *Parser) willShift(symbol int32, stack []stackEntry, state int16) bool {
 	if state == -1 {
 		return false
 	}
 
+	var stack2alloc [4]int16
+	stack2 := append(stack2alloc[:0], state)
+	size := len(stack)
+
+	// parsing_stack = stack[:size] + stack2
 	for state != p.endState {
 		action := tmAction[state]
 		if action < -2 {
@@ -220,12 +224,20 @@ func (p *Parser) willShift(stackPos int, state int16, symbol int32, stack []stac
 			// Reduce.
 			rule := action
 			ln := int(tmRuleLen[rule])
-			if ln == 0 {
-				// we do not support empty productions
-				return false
+			symbol := tmRuleSymbol[rule]
+
+			if ln > 0 {
+				if ln < len(stack2) {
+					state = stack2[len(stack2)-ln-1]
+					stack2 = stack2[:len(stack2)-ln]
+				} else {
+					size -= ln - len(stack2)
+					state = stack[size-1].state
+					stack2 = stack2alloc[:0]
+				}
 			}
-			stackPos -= ln - 1
-			state = gotoState(stack[stackPos-1].state, tmRuleSymbol[rule])
+			state = gotoState(state, symbol)
+			stack2 = append(stack2, state)
 		} else {
 			return action == -1 && gotoState(state, symbol) >= 0
 		}
@@ -302,7 +314,7 @@ func (p *Parser) recoverFromError(ctx context.Context, lexer *Lexer, stack []sta
 			fmt.Printf("trying to recover on %v\n", symbolName(p.next.symbol))
 		}
 		for _, pos := range recoverPos {
-			if p.willShift(pos, gotoState(stack[pos-1].state, errSymbol), p.next.symbol, stack) {
+			if p.willShift(p.next.symbol, stack[:pos], gotoState(stack[pos-1].state, errSymbol)) {
 				matchingPos = pos
 				break
 			}
@@ -413,17 +425,21 @@ restart:
 
 func (p *Parser) applyRule(ctx context.Context, rule int32, lhs *stackEntry, rhs []stackEntry, lexer *Lexer) (err error) {
 	switch rule {
-	case 198: // directive : '%' 'assert' 'empty' rhsSet ';'
+	case 198: // nonterm : 'extend' identifier reportClause ':' rules ';'
+		p.listener(Extend, rhs[0].sym.offset, rhs[0].sym.endoffset)
+	case 199: // nonterm : 'extend' identifier ':' rules ';'
+		p.listener(Extend, rhs[0].sym.offset, rhs[0].sym.endoffset)
+	case 213: // directive : '%' 'assert' 'empty' rhsSet ';'
 		p.listener(Empty, rhs[2].sym.offset, rhs[2].sym.endoffset)
-	case 199: // directive : '%' 'assert' 'nonempty' rhsSet ';'
+	case 214: // directive : '%' 'assert' 'nonempty' rhsSet ';'
 		p.listener(NonEmpty, rhs[2].sym.offset, rhs[2].sym.endoffset)
-	case 207: // inputref : symref 'no-eoi'
+	case 223: // inputref : symref 'no-eoi'
 		p.listener(NoEoi, rhs[1].sym.offset, rhs[1].sym.endoffset)
-	case 233: // rhsSuffix : '%' 'prec' symref
+	case 247: // rhsSuffix : '%' 'prec' symref
 		p.listener(Name, rhs[1].sym.offset, rhs[1].sym.endoffset)
-	case 234: // rhsSuffix : '%' 'shift' symref
+	case 248: // rhsSuffix : '%' 'shift' symref
 		p.listener(Name, rhs[1].sym.offset, rhs[1].sym.endoffset)
-	case 254: // lookahead_predicate : '!' symref
+	case 268: // lookahead_predicate : '!' symref
 		p.listener(Not, rhs[0].sym.offset, rhs[0].sym.endoffset)
 	}
 	if nt := tmRuleType[rule]; nt != 0 {

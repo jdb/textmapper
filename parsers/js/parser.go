@@ -53,13 +53,17 @@ func (p *Parser) ParseNamespaceNameSnippet(ctx context.Context, lexer *Lexer) er
 
 const errSymbol = 2
 
-// willShift checks if "symbol" is going to be shifted in the given state.
-// This function does not support empty productions and returns false if they occur before "symbol".
-func (p *Parser) willShift(stackPos int, state int16, symbol int32, stack []stackEntry) bool {
+// willShift checks if "symbol" is going to be shifted in the `stack+[state]` parsing stack.
+func (p *Parser) willShift(symbol int32, stack []stackEntry, state int16) bool {
 	if state == -1 {
 		return false
 	}
 
+	var stack2alloc [4]int16
+	stack2 := append(stack2alloc[:0], state)
+	size := len(stack)
+
+	// parsing_stack = stack[:size] + stack2
 	for state != p.endState {
 		action := tmAction[state]
 		if action < -2 {
@@ -70,12 +74,20 @@ func (p *Parser) willShift(stackPos int, state int16, symbol int32, stack []stac
 			// Reduce.
 			rule := action
 			ln := int(tmRuleLen[rule])
-			if ln == 0 {
-				// we do not support empty productions
-				return false
+			symbol := tmRuleSymbol[rule]
+
+			if ln > 0 {
+				if ln < len(stack2) {
+					state = stack2[len(stack2)-ln-1]
+					stack2 = stack2[:len(stack2)-ln]
+				} else {
+					size -= ln - len(stack2)
+					state = stack[size-1].state
+					stack2 = stack2alloc[:0]
+				}
 			}
-			stackPos -= ln - 1
-			state = gotoState(stack[stackPos-1].state, tmRuleSymbol[rule])
+			state = gotoState(state, symbol)
+			stack2 = append(stack2, state)
 		} else {
 			return action == -1 && gotoState(state, symbol) >= 0
 		}
@@ -633,17 +645,17 @@ func (p *Parser) applyRule(ctx context.Context, rule int32, lhs *stackEntry, rhs
 	case 4777: // TypeName : NamespaceName '.' IdentifierReference_WithDefault
 		p.listener(TsNamespaceName, rhs[0].sym.offset, rhs[0].sym.endoffset)
 	case 4879: // TupleElementType : '...' lookahead_StartOfTupleElementName IdentifierName '?' ':' Type
-		p.listener(RestType, rhs[5].sym.offset, rhs[5].sym.endoffset)
+		p.listener(TsRestType, rhs[5].sym.offset, rhs[5].sym.endoffset)
 	case 4880: // TupleElementType : '...' lookahead_StartOfTupleElementName IdentifierName ':' Type
-		p.listener(RestType, rhs[4].sym.offset, rhs[4].sym.endoffset)
+		p.listener(TsRestType, rhs[4].sym.offset, rhs[4].sym.endoffset)
 	case 4912: // ConstructorType : 'abstract' 'new' TypeParameters ParameterList '=>' Type
-		p.listener(Abstract, rhs[0].sym.offset, rhs[0].sym.endoffset)
+		p.listener(TsAbstract, rhs[0].sym.offset, rhs[0].sym.endoffset)
 	case 4913: // ConstructorType : 'abstract' 'new' ParameterList '=>' Type
-		p.listener(Abstract, rhs[0].sym.offset, rhs[0].sym.endoffset)
+		p.listener(TsAbstract, rhs[0].sym.offset, rhs[0].sym.endoffset)
 	case 4916: // ConstructorType_NoQuest : 'abstract' 'new' TypeParameters ParameterList '=>' Type_NoQuest
-		p.listener(Abstract, rhs[0].sym.offset, rhs[0].sym.endoffset)
+		p.listener(TsAbstract, rhs[0].sym.offset, rhs[0].sym.endoffset)
 	case 4917: // ConstructorType_NoQuest : 'abstract' 'new' ParameterList '=>' Type_NoQuest
-		p.listener(Abstract, rhs[0].sym.offset, rhs[0].sym.endoffset)
+		p.listener(TsAbstract, rhs[0].sym.offset, rhs[0].sym.endoffset)
 	case 4923: // ImportTypeStart : 'typeof' 'import' '(' Type ')'
 		p.listener(TsTypeOf, rhs[0].sym.offset, rhs[0].sym.endoffset)
 	case 4986: // Parameter : Modifiers BindingIdentifier '?' TypeAnnotation

@@ -84,7 +84,6 @@ ID: /[a-zA-Z_]([a-zA-Z_\-0-9]*[a-zA-Z_0-9])?|'([^\n\\']|\\.)*'/  (class)
 
 'as':        /as/
 'false':     /false/
-'implements':/implements/
 'import':    /import/
 'separator': /separator/
 'set':       /set/
@@ -99,9 +98,11 @@ ID: /[a-zA-Z_]([a-zA-Z_\-0-9]*[a-zA-Z_0-9])?|'([^\n\\']|\\.)*'/  (class)
 'expect':    /expect/
 'expect-rr': /expect-rr/
 'explicit':  /explicit/
+'extend':    /extend/
 'flag':      /flag/
 'generate':  /generate/
 'global':    /global/
+'inject':    /inject/
 'inline':    /inline/
 'input':     /input/
 'interface': /interface/
@@ -117,12 +118,10 @@ ID: /[a-zA-Z_]([a-zA-Z_\-0-9]*[a-zA-Z_0-9])?|'([^\n\\']|\\.)*'/  (class)
 'param':     /param/
 'parser':    /parser/
 'prec':      /prec/
-'returns':   /returns/
 'right':     /right/
 's':         /s/
 'shift':     /shift/
 'space':     /space/
-'void':      /void/
 'x':         /x/
 
 <initial, afterID, afterColonOrEq>
@@ -149,12 +148,12 @@ identifier<flag Keywords = false> -> Identifier:
     ID
 
 # Soft keywords
-  | 'brackets' | 'inline'    | 'prec'     | 'shift'     | 'returns' | 'input'
+  | 'brackets' | 'inline'    | 'prec'     | 'shift'     | 'input'
   | 'left'     | 'right'     | 'nonassoc' | 'generate'  | 'assert'  | 'empty'
   | 'nonempty' | 'global'    | 'explicit' | 'lookahead' | 'param'   | 'flag'
   | 'no-eoi'   | 's'         | 'x'        | 'expect'    | 'expect-rr'
-  | 'class'    | 'interface' | 'void'     | 'space'
-  | 'layout'   | 'language'  | 'lalr'     | 'lexer'      | 'parser'
+  | 'class'    | 'interface' | 'space'    | 'extend'    | 'inject'
+  | 'layout'   | 'language'  | 'lalr'     | 'lexer'     | 'parser'
 
   # Keywords
   | [Keywords] ('true' | 'false' | 'separator' | 'as' | 'import' | 'set')
@@ -241,7 +240,7 @@ start_conditions -> StartConditions:
 ;
 
 lexeme -> Lexeme:
-    start_conditions? name=identifier rawTypeopt ':'
+    start_conditions? name=identifier rawTypeopt reportClause? ':'
         (pattern priority=integer_literal? attrs=lexeme_attrs? command? | attrs=lexeme_attrs)? ;
 
 lexeme_attrs -> LexemeAttrs:
@@ -280,20 +279,9 @@ grammar_part<OrSyntaxError> -> GrammarPart:
 ;
 
 nonterm -> Nonterm:
-    annotations? name=identifier params=nonterm_params? nonterm_type? reportClause? ':' rules ';' ;
-
-%interface NontermType;
-
-nonterm_type -> NontermType:
-    'returns' reference=symref<~Args>                      -> SubType
-  | 'interface'                                            -> InterfaceType
-  | 'class' implements_clause?                             -> ClassType
-  | 'void'                                                 -> VoidType
-  | rawType
+    annotations? name=identifier params=nonterm_params? rawType? reportClause? ':' rules ';' 
+  | ('extend' -> Extend) name=identifier reportClause? ':' rules ';'
 ;
-
-implements_clause -> Implements:
-    'implements' references_cs ;
 
 assoc -> Assoc:
     'left'
@@ -319,6 +307,7 @@ directive -> GrammarPart:
   | '%' 'generate' name=identifier '=' rhsSet ';'                    -> DirectiveSet
   | '%' 'expect' integer_literal ';'                                 -> DirectiveExpect
   | '%' 'expect-rr' integer_literal ';'                              -> DirectiveExpectRR
+  | '%' 'inject' symref<~Args> reportClause ';'                      -> DirectiveInject
 ;
 
 inputref -> Inputref:
@@ -327,11 +316,6 @@ inputref -> Inputref:
 references:
     symref<~Args>
   | references symref<~Args>
-;
-
-references_cs:
-    symref<~Args>
-  | references_cs ',' symref<~Args>
 ;
 
 rules:
@@ -541,10 +525,10 @@ ${template go_lexer.onAfterNext-}
 		}
 	case token.ID, token.LEFT, token.RIGHT, token.NONASSOC, token.GENERATE,
     token.ASSERT, token.EMPTY, token.BRACKETS, token.INLINE, token.PREC,
-    token.SHIFT, token.RETURNS, token.INPUT, token.NONEMPTY, token.GLOBAL,
+    token.SHIFT, token.INPUT, token.NONEMPTY, token.GLOBAL,
     token.EXPLICIT, token.LOOKAHEAD, token.PARAM, token.FLAG, token.CHAR_S,
-    token.CHAR_X, token.CLASS, token.INTERFACE, token.VOID, token.SPACE,
-		token.LAYOUT, token.LANGUAGE, token.LALR:
+    token.CHAR_X, token.CLASS, token.INTERFACE, token.SPACE,
+		token.LAYOUT, token.LANGUAGE, token.LALR, token.EXTEND:
 
 		l.State = StateAfterID
 	case token.LEXER, token.PARSER:

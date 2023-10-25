@@ -2,6 +2,7 @@
 package compiler
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/inspirer/textmapper/grammar"
 	"github.com/inspirer/textmapper/lalr"
+	"github.com/inspirer/textmapper/parsers/tm"
 	"github.com/inspirer/textmapper/parsers/tm/ast"
 	"github.com/inspirer/textmapper/parsers/tm/selector"
 	"github.com/inspirer/textmapper/status"
@@ -17,8 +19,20 @@ import (
 	"github.com/inspirer/textmapper/util/ident"
 )
 
+// Params control the grammar compilation process.
+type Params struct {
+	Compat    bool
+	CheckOnly bool // set to true, if the caller is interested in compilation errors only
+}
+
 // Compile validates and compiles grammar files.
-func Compile(file ast.File, compat bool) (*grammar.Grammar, error) {
+func Compile(ctx context.Context, path, content string, params Params) (*grammar.Grammar, error) {
+	tree, err := ast.Parse(ctx, path, content, tm.StopOnFirstError)
+	if err != nil {
+		return nil, err
+	}
+	file := ast.File{Node: tree.Root()}
+
 	var s status.Status
 
 	opts := newOptionsParser(&s)
@@ -26,28 +40,32 @@ func Compile(file ast.File, compat bool) (*grammar.Grammar, error) {
 
 	resolver := newResolver(&s)
 
-	lexer := newLexerCompiler(opts, resolver, compat, &s)
+	lexer := newLexerCompiler(opts, resolver, params.Compat, &s)
 	lexer.compile(file)
 
 	// Resolve terminal references.
 	opts.resolve(resolver)
 
-	c := newCompiler(file, opts.out, lexer.out, resolver, compat, &s)
+	c := newCompiler(file, opts.out, lexer.out, resolver, params, &s)
 	c.compileParser(file)
 
 	tpl := strings.TrimPrefix(file.Child(selector.Templates).Text(), "%%")
-	c.out.CustomTemplates = parseInGrammarTemplates(tpl)
+	if params.Compat {
+		c.out.CustomTemplates = parseInGrammarTemplates(tpl)
+	} else {
+		c.out.CustomTemplates = tpl
+	}
 	return c.out, s.Err()
 }
 
 type compiler struct {
 	out      *grammar.Grammar
 	resolver *resolver
-	compat   bool
+	params   Params
 	*status.Status
 }
 
-func newCompiler(file ast.File, opts *grammar.Options, lexer *grammar.Lexer, resolver *resolver, compat bool, s *status.Status) *compiler {
+func newCompiler(file ast.File, opts *grammar.Options, lexer *grammar.Lexer, resolver *resolver, params Params, s *status.Status) *compiler {
 	targetLang, _ := file.Header().Target()
 	return &compiler{
 		out: &grammar.Grammar{
@@ -60,7 +78,7 @@ func newCompiler(file ast.File, opts *grammar.Options, lexer *grammar.Lexer, res
 			NumTokens:  resolver.NumTokens,
 		},
 		resolver: resolver,
-		compat:   compat,
+		params:   params,
 		Status:   s,
 	}
 }
@@ -78,7 +96,6 @@ type symAction struct {
 type symRule struct {
 	code  string
 	space bool
-	class bool
 	sym   int
 }
 
@@ -120,7 +137,7 @@ func addSyntheticInputs(m *syntax.Model, compat bool) {
 
 func (c *compiler) compileParser(file ast.File) {
 	p, ok := file.Parser()
-	if !ok {
+	if !ok || !c.out.Options.GenParser {
 		// Lexer-only grammar.
 		return
 	}
@@ -146,12 +163,40 @@ func (c *compiler) compileParser(file ast.File) {
 	}
 
 	if c.out.Options.EventBased {
-		var tokens []syntax.RangeToken
-		for _, t := range c.out.Options.ReportTokens {
-			name := ident.Produce(c.out.Syms[t].Name, ident.CamelCase)
-			tokens = append(tokens, syntax.RangeToken{Token: t, Name: name})
-		}
+		tokens := c.out.Lexer.MappedTokens
+		switch {
+		case len(loader.mapping) > 0:
+			// Prefer the injection mapping from the grammar.
+			if len(tokens) > 0 {
+				c.Errorf(file.Header(), "reportTokens are ignored in the presence of %%inject directives")
+			}
+			if len(c.out.Options.ReportTokens) > 0 {
+				c.Errorf(file.Header(), "reporting nodes via lexer rules is ignored in the presence of %%inject directives")
+			}
+			tokens = loader.mapping
 
+		case len(tokens) > 0 && len(c.out.Options.ReportTokens) > 0:
+			m := make(map[int]int)
+			for _, t := range c.out.Options.ReportTokens {
+				m[t] = 1
+			}
+			for _, t := range tokens {
+				if m[t.Token] == 0 {
+					c.Errorf(c.out.Syms[t.Token].Origin, "token %v is reported as %v but is not mentioned in the reportTokens clause", c.out.Syms[t.Token].Name, t)
+				}
+				m[t.Token] = 2
+			}
+			for _, t := range c.out.Options.ReportTokens {
+				if m[t] != 2 {
+					c.Errorf(file.Header(), "token %v is found in reportTokens but not in the lexer", c.out.Syms[t].Name)
+				}
+			}
+		case len(tokens) == 0:
+			for _, t := range c.out.Options.ReportTokens {
+				name := ident.Produce(c.out.Syms[t].Name, ident.CamelCase)
+				tokens = append(tokens, syntax.RangeToken{Token: t, Name: name})
+			}
+		}
 		opts := syntax.TypeOptions{
 			EventFields: c.out.Options.EventFields,
 			GenSelector: c.out.Options.GenSelector,
@@ -163,7 +208,18 @@ func (c *compiler) compileParser(file ast.File) {
 			return
 		}
 		c.out.Parser.Types = types
-		c.out.Parser.MappedTokens = tokens
+		c.out.Lexer.MappedTokens = tokens
+
+		seenFlags := make(map[string]bool)
+		for _, t := range tokens {
+			for _, f := range t.Flags {
+				if !seenFlags[f] {
+					seenFlags[f] = true
+					c.out.Lexer.UsedFlags = append(c.out.Lexer.UsedFlags, f)
+				}
+			}
+		}
+		sort.Strings(c.out.Lexer.UsedFlags)
 	}
 
 	if err := syntax.Expand(source); err != nil {
@@ -173,7 +229,7 @@ func (c *compiler) compileParser(file ast.File) {
 
 	// Use instantiated nonterminal names to describe sets in generated code.
 	old := source.Terminals
-	if c.compat {
+	if c.params.Compat {
 		// Note: prefer original terminal names over IDs.
 		source.Terminals = nil
 		for _, sym := range c.out.Syms {
@@ -208,30 +264,45 @@ func (c *compiler) compileParser(file ast.File) {
 	}
 
 	// Introduce synthetic inputs for runtime lookaheads.
-	addSyntheticInputs(source, c.compat)
+	addSyntheticInputs(source, c.params.Compat)
 
 	// Prepare the model for code generation.
 	c.resolver.addNonterms(source)
 	c.out.Syms = c.resolver.Syms
-	if !c.generateTables(source, loader, file) {
-		return
-	}
 
-	out := c.out.Parser
-	out.Inputs = source.Inputs
-	out.Nonterms = source.Nonterms
-	out.NumTerminals = len(source.Terminals)
+	opts := genOptions{
+		compat:        c.params.Compat,
+		expectSR:      loader.expectSR,
+		expectRR:      loader.expectRR,
+		syms:          c.out.Syms,
+		optimize:      c.out.Options.OptimizeTables && !c.params.CheckOnly,
+		defaultReduce: c.out.Options.DefaultReduce,
+	}
+	if err := generateTables(source, c.out.Parser, opts, file); err != nil {
+		c.AddError(err)
+	}
 }
 
-func (c *compiler) generateTables(source *syntax.Model, loader *syntaxLoader, origin ast.File) bool {
+type genOptions struct {
+	compat   bool
+	expectRR int
+	expectSR int
+	syms     []grammar.Symbol
+
+	optimize      bool
+	defaultReduce bool
+}
+
+func generateTables(source *syntax.Model, out *grammar.Parser, opts genOptions, origin status.SourceNode) error {
+	var s status.Status
 	g := &lalr.Grammar{
 		Terminals:  len(source.Terminals),
-		Precedence: c.out.Parser.Prec,
-		ExpectSR:   loader.expectSR,
-		ExpectRR:   loader.expectRR,
+		Precedence: out.Prec,
+		ExpectSR:   opts.expectSR,
+		ExpectRR:   opts.expectRR,
 		Origin:     origin,
 	}
-	for _, sym := range c.out.Syms {
+	for _, sym := range opts.syms {
 		g.Symbols = append(g.Symbols, sym.Name)
 	}
 	inputs := make(map[lalr.Input]int32)
@@ -245,14 +316,19 @@ func (c *compiler) generateTables(source *syntax.Model, loader *syntaxLoader, or
 	}
 	markers := make(map[string]int)
 	types := make(map[string]int)
-	if c.out.Parser.Types != nil {
-		for i, t := range c.out.Parser.Types.RangeTypes {
+	cats := make(map[string]bool)
+	seenFlags := make(map[string]bool)
+	if out.Types != nil {
+		for i, t := range out.Types.RangeTypes {
 			types[t.Name] = i
+		}
+		for _, t := range out.Types.Categories {
+			cats[t.Name] = true
 		}
 	}
 
 	// The very first action is a no-op.
-	c.out.Parser.Actions = append(c.out.Parser.Actions, grammar.SemanticAction{})
+	out.Actions = append(out.Actions, grammar.SemanticAction{})
 
 	var rules []*grammar.Rule
 	for self, nt := range source.Nonterms {
@@ -320,7 +396,7 @@ func (c *compiler) generateTables(source *syntax.Model, loader *syntaxLoader, or
 					for _, sub := range expr.Sub {
 						traverse(sub)
 					}
-					if loader.isSelector(expr.Name) {
+					if cats[expr.Name] {
 						// Categories are used during the grammar analysis only and don't need
 						// to be reported.
 						break
@@ -333,8 +409,11 @@ func (c *compiler) generateTables(source *syntax.Model, loader *syntaxLoader, or
 							Type:  t,
 							Flags: expr.ArrowFlags,
 						})
-						if len(expr.ArrowFlags) != 0 {
-							c.out.Parser.UsesFlags = true
+						for _, f := range expr.ArrowFlags {
+							if !seenFlags[f] {
+								seenFlags[f] = true
+								out.UsedFlags = append(out.UsedFlags, f)
+							}
 						}
 					}
 				case syntax.Sequence, syntax.Assign, syntax.Append:
@@ -345,7 +424,7 @@ func (c *compiler) generateTables(source *syntax.Model, loader *syntaxLoader, or
 				case syntax.Reference:
 					if command != "" {
 						// TODO This command needs to be extracted into a dedicated nonterminal.
-						c.Errorf(origin, "commands must be placed at the end of a rule")
+						s.Errorf(origin, "commands must be placed at the end of a rule")
 					}
 					if expr.Pos > 0 {
 						actualPos[expr.Pos] = numRefs
@@ -369,10 +448,11 @@ func (c *compiler) generateTables(source *syntax.Model, loader *syntaxLoader, or
 				}
 			}
 			traverse(expr)
+			sort.Strings(out.UsedFlags)
 
 			if last := len(report) - 1; last >= 0 && report[last].Start == 0 && report[last].End == numRefs &&
 				// Note: in compatibility note we don't promote -> from inside parentheses.
-				(!c.compat || len(report) > innerReports) {
+				(!opts.compat || len(report) > innerReports) {
 
 				// Promote to the rule default.
 				rule.Type = report[last].Type
@@ -392,22 +472,23 @@ func (c *compiler) generateTables(source *syntax.Model, loader *syntaxLoader, or
 						if r.IsStateMarker() {
 							continue
 						}
-						act.Vars.Types = append(act.Vars.Types, c.out.Syms[r].Type)
+						act.Vars.Types = append(act.Vars.Types, opts.syms[r].Type)
 					}
+					act.Vars.LHSType = opts.syms[rule.LHS].Type
 				}
-				rule.Action = len(c.out.Parser.Actions)
-				c.out.Parser.Actions = append(c.out.Parser.Actions, act)
+				rule.Action = len(out.Actions)
+				out.Actions = append(out.Actions, act)
 			}
 			g.Rules = append(g.Rules, rule)
 			rules = append(rules, &grammar.Rule{Rule: rule, Value: exprWithPrec})
 		}
 	}
-	if c.Err() != nil {
+	if s.Err() != nil {
 		// Parsing errors cause inconsistencies inside c.source. Aborting.
-		return false
+		return s.Err()
 	}
 
-	if c.compat {
+	if opts.compat {
 		// Sort g.Markers.
 		perm := make([]int, len(g.Markers))
 		sort.Strings(g.Markers)
@@ -423,15 +504,21 @@ func (c *compiler) generateTables(source *syntax.Model, loader *syntaxLoader, or
 		}
 	}
 
-	tables, err := lalr.Compile(g)
+	lopts := lalr.Options{
+		Optimize:      opts.optimize,
+		DefaultReduce: opts.defaultReduce,
+	}
+	tables, err := lalr.Compile(g, lopts)
 	if err != nil {
-		c.AddError(err)
-		return false
+		return err
 	}
 
-	c.out.Parser.Rules = rules
-	c.out.Parser.Tables = tables
-	return true
+	out.Rules = rules
+	out.Tables = tables
+	out.Inputs = source.Inputs
+	out.Nonterms = source.Nonterms
+	out.NumTerminals = len(source.Terminals)
+	return nil
 }
 
 var tplMap = map[string]string{
@@ -446,6 +533,7 @@ var tplMap = map[string]string{
 	"go_parser.setupLookaheadLexer": "setupLookaheadLexer",
 	"go_parser.onBeforeIgnore":      "onBeforeIgnore",
 	"go_parser.onAfterParser":       "onAfterParser",
+	"go_parser.customReportNext":    "customReportNext",
 }
 
 var tplRE = regexp.MustCompile(`(?s)\${template ([\w.]+)(-?)}(.*?)\${end}`)

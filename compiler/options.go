@@ -13,8 +13,7 @@ import (
 
 type optionsParser struct {
 	// intermediate data that needs to be resolved
-	reportTokens map[string]bool
-	reportList   []ast.Identifier
+	reportList []ast.Identifier
 
 	target string // target language
 	out    *grammar.Options
@@ -24,7 +23,9 @@ type optionsParser struct {
 func newOptionsParser(s *status.Status) *optionsParser {
 	return &optionsParser{
 		out: &grammar.Options{
-			TokenLine: true,
+			TokenLine:         true,
+			GenParser:         true,
+			AbslIncludePrefix: "absl",
 		},
 		Status: s,
 	}
@@ -58,6 +59,8 @@ func (p *optionsParser) parseFrom(file ast.File) {
 			opts.TokenColumn = p.parseExpr(opt.Value(), opts.TokenColumn).(bool)
 		case "nonBacktracking":
 			opts.NonBacktracking = p.parseExpr(opt.Value(), opts.NonBacktracking).(bool)
+		case "genParser":
+			opts.GenParser = p.parseExpr(opt.Value(), opts.GenParser).(bool)
 		case "cancellable":
 			p.validLangs(opt.Key(), "go")
 			opts.Cancellable = p.parseExpr(opt.Value(), opts.Cancellable).(bool)
@@ -69,7 +72,6 @@ func (p *optionsParser) parseFrom(file ast.File) {
 		case "recursiveLookaheads":
 			opts.RecursiveLookaheads = p.parseExpr(opt.Value(), opts.RecursiveLookaheads).(bool)
 		case "eventBased":
-			p.validLangs(opt.Key(), "go")
 			opts.EventBased = p.parseExpr(opt.Value(), opts.EventBased).(bool)
 		case "genSelector":
 			p.validLangs(opt.Key(), "go")
@@ -79,6 +81,10 @@ func (p *optionsParser) parseFrom(file ast.File) {
 			opts.FixWhitespace = p.parseExpr(opt.Value(), opts.FixWhitespace).(bool)
 		case "debugParser":
 			opts.DebugParser = p.parseExpr(opt.Value(), opts.DebugParser).(bool)
+		case "optimizeTables":
+			opts.OptimizeTables = p.parseExpr(opt.Value(), opts.OptimizeTables).(bool)
+		case "defaultReduce":
+			opts.DefaultReduce = p.parseExpr(opt.Value(), opts.DefaultReduce).(bool)
 		case "eventFields":
 			p.validLangs(opt.Key(), "go")
 			opts.EventFields = p.parseExpr(opt.Value(), opts.EventFields).(bool)
@@ -86,20 +92,15 @@ func (p *optionsParser) parseFrom(file ast.File) {
 			p.validLangs(opt.Key(), "go")
 			opts.EventAST = p.parseExpr(opt.Value(), opts.EventAST).(bool)
 		case "reportTokens":
-			p.validLangs(opt.Key(), "go")
 			p.reportList = p.parseTokenList(opt.Value())
-			p.reportTokens = make(map[string]bool)
-			for _, id := range p.reportList {
-				p.reportTokens[id.Text()] = true
-			}
 		case "extraTypes":
-			p.validLangs(opt.Key(), "go")
 			opts.ExtraTypes = p.parseExpr(opt.Value(), opts.ExtraTypes).([]syntax.ExtraType)
 		case "customImpl":
 			opts.CustomImpl = p.parseExpr(opt.Value(), opts.CustomImpl).([]string)
 		case "fileNode":
-			p.validLangs(opt.Key(), "go")
 			opts.FileNode = p.parseExpr(opt.Value(), opts.FileNode).(string)
+		case "nodePrefix":
+			opts.NodePrefix = p.parseExpr(opt.Value(), opts.NodePrefix).(string)
 		case "lang":
 			// This option often occurs in existing grammars. Ignore it.
 			p.parseExpr(opt.Value(), "")
@@ -109,6 +110,18 @@ func (p *optionsParser) parseFrom(file ast.File) {
 		case "includeGuardPrefix":
 			p.validLangs(opt.Key(), "cc")
 			opts.IncludeGuardPrefix = p.parseExpr(opt.Value(), opts.IncludeGuardPrefix).(string)
+		case "filenamePrefix":
+			p.validLangs(opt.Key(), "cc")
+			opts.FilenamePrefix = p.parseExpr(opt.Value(), opts.FilenamePrefix).(string)
+		case "abseilIncludePrefix":
+			p.validLangs(opt.Key(), "cc")
+			opts.AbslIncludePrefix = p.parseExpr(opt.Value(), opts.AbslIncludePrefix).(string)
+		case "dirIncludePrefix":
+			p.validLangs(opt.Key(), "cc")
+			opts.DirIncludePrefix = p.parseExpr(opt.Value(), opts.DirIncludePrefix).(string)
+		case "parseParams":
+			p.validLangs(opt.Key(), "cc")
+			opts.ParseParams = p.parseExpr(opt.Value(), opts.ParseParams).([]string)
 		default:
 			p.Errorf(opt.Key(), "unknown option '%v'", name)
 		}

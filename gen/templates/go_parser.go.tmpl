@@ -1,27 +1,32 @@
-{{- define "flushPending"}}
-{{- if .ReportTokens true }}
+{{- define "flushPending" -}}
+{{ if .ReportTokens true -}}
 	if len(p.pending) > 0 {
 		for _, tok := range p.pending {
 			p.reportIgnoredToken({{if $.Options.Cancellable}}ctx, {{end}}tok)
 		}
 		p.pending = p.pending[:0]
 	}
-{{- end}}
-{{- end}}
+{{ end -}}
+{{end}}
+
+{{- define "customReportNext"}}{{end}}
 
 {{- define "reportConsumedNext" -}}
-{{- if .ReportTokens false }}
+{{ if .ReportTokens false -}}
 			switch {{template "tokenType" .}}(p.next.symbol) {
-{{- range .Parser.MappedTokens}}
-{{- $sym := index $.Syms .Token}}
-{{- if not (or $sym.Space (eq $sym.Name "invalid_token")) }}
+{{ range .Lexer.MappedTokens -}}
+{{ $sym := index $.Syms .Token -}}
+{{ if not (or $sym.Space (eq $sym.Name "invalid_token")) -}}
 	case {{template "tokenPkg" $}}{{$sym.ID}}:
-		p.listener({{template "nodeTypePkg" $}}{{node_id .Name}}, {{if $.Parser.UsesFlags}}0, {{end}}p.next.offset, p.next.endoffset)
-{{- end}}
-{{- end}}
+		p.listener({{template "nodeTypePkg" $}}{{node_id .Name}}, {{if $.Parser.UsedFlags}}{{range $index, $flag := .Flags}}{{if ne $index 0}} | {{end}}{{template "nodeTypePkg" $}}{{$flag}}{{else}}0{{end}}, {{end}}p.next.offset, p.next.endoffset)
+{{end -}}
+{{end -}}
+{{template "customReportNext" . -}}
 			}
-{{- end}}
-{{- end}}
+{{else -}}
+{{template "customReportNext" . -}}
+{{end -}}
+{{end}}
 
 
 {{- template "header" . -}}
@@ -62,6 +67,7 @@ type Parser struct {
 	// Tokens to be reported with the next shift. Only non-empty when next.symbol != noToken.
 	pending []symbol
 {{- end }}
+{{ block "sharedParserVars" .}}{{end -}}
 {{ block "parserVars" .}}{{end -}}
 }
 
@@ -116,6 +122,7 @@ func (p *Parser) Init({{if .Parser.IsRecovering }}eh ErrorHandler{{end}}{{if .Pa
 		p.pending = make([]symbol, 0, startTokenBufferSize)
 	}
 {{- end}}
+{{ block "initSharedParserVars" .}}{{end -}}
 {{ block "initParserVars" .}}{{end -}}
 }
 
@@ -191,7 +198,22 @@ func (p *Parser) parse({{if $.Options.Cancellable}}ctx "context".Context, {{end}
 
 	for state != end {
 		action := tmAction[state]
-{{- if .Parser.Tables.Lalr}}
+{{- if .Parser.Tables.Optimized}}
+		if action > tmActionBase {
+			// Lookahead is needed.
+			if p.next.symbol == noToken {
+				p.fetchNext({{if and $.Options.Cancellable $.Options.CancellableFetch}}ctx, {{end}}lexer, stack)
+			}
+			pos := action + p.next.symbol
+			if pos >= 0 && pos < tmTableLen && int32(tmCheck[pos]) == p.next.symbol {
+				action = int32(tmTable[pos])
+			} else {
+				action = tmDefAct[state]
+			}
+		} else {
+			action = tmDefAct[state]
+		}
+{{- else if .Parser.Tables.Lalr}}
 		if action < -2 {
 			// Lookahead is needed.
 			if p.next.symbol == noToken {
@@ -229,7 +251,7 @@ func (p *Parser) parse({{if $.Options.Cancellable}}ctx "context".Context, {{end}
 			entry.state = state
 			stack = append(stack, entry)
 
-		} else if action == -1 {
+		} else if action {{if .Parser.Tables.Optimized}}<{{else}}=={{end}} -1 {
 {{- if .Options.Cancellable }}
 			if {{if .NeedsSession}}s.{{end}}shiftCounter++; {{if .NeedsSession}}s.{{end}}shiftCounter&0x1ff == 0 {
 				// Note: checking for context cancellation is expensive so we do it from time to time.
@@ -241,11 +263,15 @@ func (p *Parser) parse({{if $.Options.Cancellable}}ctx "context".Context, {{end}
 			}
 {{end}}
 			// Shift.
+{{- if .Parser.Tables.Optimized}}
+			state = int{{$stateType}}(-2-action)
+{{- else}}
 			if p.next.symbol == noToken {
 				p.fetchNext({{if and $.Options.Cancellable $.Options.CancellableFetch}}ctx, {{end}}lexer, stack)
 			}
 			state = gotoState(state, p.next.symbol)
 			if state >= 0 {
+{{- end}}
 				stack = append(stack, stackEntry{
 					sym:   p.next,
 					state: state,
@@ -256,10 +282,10 @@ func (p *Parser) parse({{if $.Options.Cancellable}}ctx "context".Context, {{end}
 				if debugSyntax {
 					"fmt".Printf("shift: %v (%s)\n", symbolName(p.next.symbol), lexer.Text())
 				}
-{{- block "onAfterShift" .}}{{end}}
-{{- template "flushPending" .}}
+{{ block "onAfterShift" .}}{{end -}}
+{{ template "flushPending" . -}}
 				if p.next.symbol != eoiToken {
-{{- template "reportConsumedNext" .}}
+{{template "reportConsumedNext" . -}}
 					p.next.symbol = noToken
 				}
 {{- if .Parser.IsRecovering }}
@@ -267,10 +293,12 @@ func (p *Parser) parse({{if $.Options.Cancellable}}ctx "context".Context, {{end}
 					p.recovering--
 				}
 {{- end}}
+{{- if not .Parser.Tables.Optimized}}
 			}
+{{- end}}
 		}
 
-		if action == -2 || state == -1 {
+		if action == {{ if .Parser.Tables.Optimized}}-1{{else}}-2{{end}} || state == -1 {
 {{- if .Parser.IsRecovering }}
 			if p.recovering == 0 {
 				if p.next.symbol == noToken {
@@ -284,14 +312,14 @@ func (p *Parser) parse({{if $.Options.Cancellable}}ctx "context".Context, {{end}
 					Endoffset: p.next.endoffset,
 				}
 				if !p.eh(lastErr) {
-{{- template "flushPending" .}}
+{{ template "flushPending" . -}}
 					return {{if .Parser.HasInputAssocValues}}nil, {{end}}lastErr
 				}
 			}
 
 			p.recovering = 4
 			if stack = p.recoverFromError({{if $.Options.Cancellable}}ctx, {{end}}lexer, stack); stack == nil {
-{{- template "flushPending" .}}
+{{ template "flushPending" . -}}
 				return {{if .Parser.HasInputAssocValues}}nil, {{end}}lastErr
 			}
 			state = stack[len(stack)-1].state
@@ -330,16 +358,31 @@ const errSymbol = {{ .Parser.ErrorSymbol }}
 {{ block "willShift" . -}}
 {{$stateType := bits_per_element .Parser.Tables.FromTo -}}
 {{ if .Options.IsEnabled "willShift" -}}
-// willShift checks if "symbol" is going to be shifted in the given state.
-// This function does not support empty productions and returns false if they occur before "symbol".
-func (p *Parser) willShift(stackPos int, state int{{$stateType}}, symbol int32, stack []stackEntry) bool {
+// willShift checks if "symbol" is going to be shifted in the `stack+[state]` parsing stack.
+func (p *Parser) willShift(symbol int32, stack []stackEntry, state int{{$stateType}}) bool {
 	if state == -1 {
 		return false
 	}
 
+	var stack2alloc [4]int{{$stateType}}
+	stack2 := append(stack2alloc[:0], state)
+	size := len(stack)
+
+	// parsing_stack = stack[:size] + stack2
 	for state != p.endState {
 		action := tmAction[state]
-{{- if .Parser.Tables.Lalr}}
+{{- if .Parser.Tables.Optimized}}
+		if action > tmActionBase {
+			pos := action + symbol
+			if pos >= 0 && pos < tmTableLen && int32(tmCheck[pos]) == symbol {
+				action = int32(tmTable[pos])
+			} else {
+				action = tmDefAct[state]
+			}
+		} else {
+			action = tmDefAct[state]
+		}
+{{- else if .Parser.Tables.Lalr}}
 		if action < -2 {
 			action = lalr(action, symbol)
 		}
@@ -349,14 +392,26 @@ func (p *Parser) willShift(stackPos int, state int{{$stateType}}, symbol int32, 
 			// Reduce.
 			rule := action
 			ln := int(tmRuleLen[rule])
-			if ln == 0 {
-				// we do not support empty productions
-				return false
+			symbol := tmRuleSymbol[rule]
+
+			if ln > 0 {
+				if ln < len(stack2) {
+					state = stack2[len(stack2)-ln-1]
+					stack2 = stack2[:len(stack2)-ln]
+				} else {
+					size -= ln - len(stack2)
+					state = stack[size-1].state
+					stack2 = stack2alloc[:0]
+				}
 			}
-			stackPos -= ln - 1
-			state = gotoState(stack[stackPos-1].state, tmRuleSymbol[rule])
+			state = gotoState(state, symbol)
+			stack2 = append(stack2, state)
 		} else {
+{{- if .Parser.Tables.Optimized}}
+			return action < -1
+{{- else}}
 			return action == -1 && gotoState(state, symbol) >= 0
+{{- end}}
 		}
 	}
 	return symbol == eoiToken
@@ -372,8 +427,8 @@ func (p *Parser) skipBrokenCode({{if $.Options.Cancellable}}ctx "context".Contex
 		if debugSyntax {
 			"fmt".Printf("skipped while recovering: %v (%s)\n", symbolName(p.next.symbol), lexer.Text())
 		}
-{{- template "flushPending" .}}
-{{- template "reportConsumedNext" .}}
+{{ template "flushPending" . -}}
+{{ template "reportConsumedNext" . -}}
 		e = p.next.endoffset
 		p.fetchNext({{if and $.Options.Cancellable $.Options.CancellableFetch}}ctx, {{end}}lexer, stack)
 	}
@@ -447,7 +502,7 @@ func (p *Parser) recoverFromError({{if $.Options.Cancellable}}ctx "context".Cont
 			"fmt".Printf("trying to recover on %v\n", symbolName(p.next.symbol))
 		}
 		for _, pos := range recoverPos {
-			if p.willShift(pos, gotoState(stack[pos-1].state, errSymbol), p.next.symbol, stack) {
+			if p.willShift(p.next.symbol, stack[:pos], gotoState(stack[pos-1].state, errSymbol)) {
 				matchingPos = pos
 				break
 			}
@@ -515,7 +570,7 @@ func (p *Parser) recoverFromError({{if $.Options.Cancellable}}ctx "context".Cont
 {{ end -}}
 
 {{ block "lalr" . -}}
-{{ if .Parser.Tables.Lalr -}}
+{{ if and .Parser.Tables.Lalr (not .Parser.Tables.Optimized) -}}
 func lalr(action, next int32) int32 {
 	a := -action - 3
 	for ; tmLalr[a] >= 0; a += 2 {
@@ -532,6 +587,7 @@ func lalr(action, next int32) int32 {
 {{ block "gotoState" . -}}
 {{$stateType := bits_per_element .Parser.Tables.FromTo -}}
 func gotoState(state int{{$stateType}}, symbol int32) int{{$stateType}} {
+{{ if not .Parser.Tables.Optimized -}}
 	min := tmGoto[symbol]
 	max := tmGoto[symbol+1]
 
@@ -554,6 +610,32 @@ func gotoState(state int{{$stateType}}, symbol int32) int{{$stateType}} {
 			}
 		}
 	}
+{{ else -}}
+{{$checkType := bits_per_element .Parser.Tables.Optimized.Check -}}
+	const numTokens = {{$.NumTokens}}
+	if symbol >= numTokens {
+		pos := tmGoto[symbol-numTokens] + int32(state)
+		if pos >= 0 && pos < tmTableLen && tmCheck[pos] == int{{$checkType}}(state) {
+			return int{{$stateType}}(tmTable[pos])
+		}
+		return int{{$stateType}}(tmDefGoto[symbol-numTokens])
+	}
+
+	// Shifting a token.
+	action := tmAction[state]
+	if action == tmActionBase {
+		return -1
+	}
+	pos := action + symbol
+	if pos >= 0 && pos < tmTableLen && tmCheck[pos] == int{{$checkType}}(symbol) {
+		action = int32(tmTable[pos])
+	} else {
+		action = tmDefAct[state]
+	}
+	if action < -1 {
+		return int{{$stateType}}(-2-action)
+	}
+{{ end -}}
 	return -1
 }
 
@@ -654,7 +736,7 @@ func At{{$sym.Name}}({{if $.Options.Cancellable}}ctx "context".Context, {{end}}l
 {{$stateType := bits_per_element .Parser.Tables.FromTo -}}
 func lookahead({{if $.Options.Cancellable}}ctx "context".Context, {{end}}l *Lexer, next int32, start, end int{{$stateType}}{{if $.NeedsSession}}, s *session{{end}}) {{if $.Options.Cancellable}}(bool, error){{else}}bool{{end}} {
 {{ block "setupLookaheadLexer" . -}}
-{{/**/}}	var lexer Lexer = *l
+	var lexer Lexer = *l
 {{end -}}
 {{ if .Options.RecursiveLookaheads }}
 	// Use memoization for recursive lookaheads.
@@ -672,7 +754,22 @@ func lookahead({{if $.Options.Cancellable}}ctx "context".Context, {{end}}l *Lexe
 
 	for state != end {
 		action := tmAction[state]
-{{- if .Parser.Tables.Lalr}}
+{{- if .Parser.Tables.Optimized}}
+		if action > tmActionBase {
+			// Lookahead is needed.
+			if next == noToken {
+				next = {{template "callLookaheadNext" false}}
+			}
+			pos := action + next
+			if pos >= 0 && pos < tmTableLen && int32(tmCheck[pos]) == next {
+				action = int32(tmTable[pos])
+			} else {
+				action = tmDefAct[state]
+			}
+		} else {
+			action = tmDefAct[state]
+		}
+{{- else if .Parser.Tables.Lalr}}
 		if action < -2 {
 			// Lookahead is needed.
 			if next == noToken {
@@ -708,7 +805,7 @@ func lookahead({{if $.Options.Cancellable}}ctx "context".Context, {{end}}l *Lexe
 			entry.state = state
 			stack = append(stack, entry)
 
-		} else if action == -1 {
+		} else if action {{if .Parser.Tables.Optimized}}< -1{{else}}== -1{{end}} {
 {{- if .Options.Cancellable }}
 			if {{if .NeedsSession}}s.{{end}}shiftCounter++; {{if .NeedsSession}}s.{{end}}shiftCounter&0x1ff == 0 {
 				// Note: checking for context cancellation is expensive so we do it from time to time.
@@ -720,10 +817,14 @@ func lookahead({{if $.Options.Cancellable}}ctx "context".Context, {{end}}l *Lexe
 			}
 {{end}}
 			// Shift.
+{{- if .Parser.Tables.Optimized}}
+			state = int{{$stateType}}(-2-action)
+{{- else}}
 			if next == noToken {
 				next = {{template "callLookaheadNext" false}}
 			}
 			state = gotoState(state, next)
+{{- end}}
 			stack = append(stack, stackEntry{
 				sym:   symbol{symbol: next},
 				state: state,
@@ -736,7 +837,7 @@ func lookahead({{if $.Options.Cancellable}}ctx "context".Context, {{end}}l *Lexe
 			}
 		}
 
-		if action == -2 || state == -1 {
+		if action == {{if .Parser.Tables.Optimized}}-1{{else}}-2{{end}} || state == -1 {
 			break
 		}
 	}
@@ -744,7 +845,7 @@ func lookahead({{if $.Options.Cancellable}}ctx "context".Context, {{end}}l *Lexe
 {{ if .Options.RecursiveLookaheads -}}
 	s.cache[key] = state == end
 {{ end -}}
-{{/**/}}	if debugSyntax {
+	if debugSyntax {
 		"fmt".Printf("lookahead done: %v\n", state == end)
 	}
 	return state == end{{if $.Options.Cancellable}}, nil{{end}}
@@ -768,7 +869,7 @@ func (p *Parser) applyRule({{if $.Options.Cancellable}}ctx "context".Context, {{
 {{- end}}
 {{- range $act.Report}}
 {{- $val := index $.Parser.Types.RangeTypes .Type }}
-{{- if $.Parser.UsesFlags}}
+{{- if $.Parser.UsedFlags}}
 		p.listener({{template "nodeTypePkg" $}}{{node_id $val.Name}}, {{range $index, $flag := .Flags}}{{if ne $index 0}} | {{end}}{{template "nodeTypePkg" $}}{{$flag}}{{else}}0{{end}}, rhs[{{.Start}}].sym.offset, rhs[{{minus1 .End}}].sym.endoffset)
 {{- else}}
 		p.listener({{template "nodeTypePkg" $}}{{node_id $val.Name}}, rhs[{{.Start}}].sym.offset, rhs[{{minus1 .End}}].sym.endoffset)
@@ -801,7 +902,7 @@ func (p *Parser) applyRule({{if $.Options.Cancellable}}ctx "context".Context, {{
 {{- end}}
 {{- if .Parser.Types }}
 	if nt := tmRuleType[rule]; nt != 0 {
-{{- if .Parser.UsesFlags}}
+{{- if .Parser.UsedFlags}}
 		p.listener({{template "nodeTypeRef" $}}(nt&0xffff), {{template "nodeFlagsRef" $}}(nt>>16), lhs.sym.offset, lhs.sym.endoffset)
 {{- else}}
 		p.listener(nt, lhs.sym.offset, lhs.sym.endoffset)
@@ -837,22 +938,28 @@ func fixTrailingWS(lhs *stackEntry, rhs []stackEntry) {
 {{ block "reportIgnoredToken" . -}}
 func (p *Parser) reportIgnoredToken({{if $.Options.Cancellable}}ctx "context".Context, {{end}}tok symbol) {
 {{ block "onBeforeIgnore" .}}{{end -}}
-{{/**/}}	var t {{template "nodeTypeRef" $}}
+	var t {{template "nodeTypeRef" $}}
+{{ if .Lexer.UsedFlags -}}
+	var flags {{template "nodeFlagsRef" $}}
+{{ end -}}
 	switch {{template "tokenType" .}}(tok.symbol) {
-{{- range .Parser.MappedTokens}}
-{{- $sym := index $.Syms .Token}}
-{{- if or $sym.Space (eq $sym.Name "invalid_token") }}
+{{ range .Lexer.MappedTokens -}}
+{{ $sym := index $.Syms .Token -}}
+{{ if or $sym.Space (eq $sym.Name "invalid_token") -}}
 	case {{template "tokenPkg" $}}{{$sym.ID}}:
 		t = {{template "nodeTypePkg" $}}{{node_id .Name}}
-{{- end}}
-{{- end}}
+{{ if .Flags -}}
+		flags = {{range $index, $flag := .Flags}}{{if ne $index 0}} | {{end}}{{template "nodeTypePkg" $}}{{$flag}}{{end}}
+{{ end -}}
+{{ end -}}
+{{ end -}}
 	default:
 		return
 	}
 	if debugSyntax {
 		"fmt".Printf("ignored: %v as %v\n", {{template "tokenType" .}}(tok.symbol), t)
 	}
-	p.listener(t, {{if .Parser.UsesFlags}}0, {{end}}tok.offset, tok.endoffset)
+	p.listener(t, {{if .Parser.UsedFlags}}{{if .Lexer.UsedFlags}}flags{{else}}0{{end}}, {{end}}tok.offset, tok.endoffset)
 }
 {{ end -}}
 {{ end -}}
