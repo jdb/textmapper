@@ -104,6 +104,18 @@ func (p *Parser) HasActions() bool {
 	return len(p.Tables.Lookaheads) > 0
 }
 
+func (p *Parser) HasActionsWithReport() bool {
+	for _, r := range p.Rules {
+		if r.Action > 0 {
+			act := p.Actions[r.Action]
+			if len(act.Report) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Tokens returns all lexical tokens defined in the grammar.
 func (g *Grammar) Tokens() []Symbol {
 	return g.Syms[:g.NumTokens]
@@ -130,7 +142,7 @@ func (g *Grammar) TokensWithoutPrec() []Symbol {
 // ReportTokens returns a list of tokens that need to be injected into the AST.
 func (g *Grammar) ReportTokens(space bool) []Symbol {
 	var ret []Symbol
-	for _, t := range g.Lexer.MappedTokens {
+	for _, t := range g.Parser.MappedTokens {
 		isSpace := g.Syms[t.Token].Space || g.Syms[t.Token].Name == "invalid_token"
 		if isSpace == space {
 			ret = append(ret, g.Syms[t.Token])
@@ -140,7 +152,7 @@ func (g *Grammar) ReportTokens(space bool) []Symbol {
 }
 
 func (g *Grammar) ReportsInvalidToken() bool {
-	for _, t := range g.Lexer.MappedTokens {
+	for _, t := range g.Parser.MappedTokens {
 		if g.Syms[t.Token].Name == "invalid_token" {
 			return true
 		}
@@ -252,6 +264,26 @@ func (g *Grammar) AllFlags() []string {
 		}
 		prev = str
 		ret = append(ret, str)
+	}
+	return ret
+}
+
+// FlexTranslate returns a translation table from token IDs returned by Flex to
+// Textmapper token indices.
+func (g *Grammar) FlexTranslate() []int {
+	var maxFlexID int
+	for _, sym := range g.Syms[:g.NumTokens] {
+		maxFlexID = max(maxFlexID, sym.FlexID)
+	}
+
+	const invalidToken = 2
+	ret := make([]int, maxFlexID+1)
+	for i := range ret {
+		ret[i] = invalidToken
+	}
+	ret[0] = 0 // EOI
+	for i, sym := range g.Syms[:g.NumTokens] {
+		ret[sym.FlexID] = i
 	}
 	return ret
 }

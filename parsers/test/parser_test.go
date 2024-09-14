@@ -40,11 +40,16 @@ var parseTests = []struct {
 		`«decl2»`,
 	}},
 	{test.If, 0, []string{
-		`«if() decl2»`,
-		`«if() decl2 else decl2»`,
-		`«if() decl2 else «if() decl2 else decl2»»`,
-		`«if() «if() decl2 else decl2»»`,
-		`«if() «if() decl2 else decl2» else decl2»`,
+		`«if(as) decl2»`,
+		`«if(as) decl2 else decl2»`,
+		`«if(as) decl2 else «if(as) decl2 else decl2»»`,
+		`«if(as) «if(as) decl2 else decl2»»`,
+		`«if(as) «if(as) decl2 else decl2» else decl2»`,
+	}},
+	{test.Elem, 0, []string{
+		`if(«as») decl2`,
+		`if(«as» «f_a») decl2`,
+		`if(«f_a» «as» «f_a») decl2`,
 	}},
 	{test.Int, 0, []string{
 		`«42» «7» «9» `,
@@ -120,6 +125,9 @@ var parseTests = []struct {
 	{test.DeclOptQual, 0, []string{
 		` «decl2:  a.b.c»  decl2`,
 		` «decl2 :»  decl2`,
+	}},
+	{test.Bar, 0, []string{
+		` eval(4.«»1 as «»2 + «»3) `,
 	}},
 }
 

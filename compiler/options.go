@@ -12,9 +12,6 @@ import (
 )
 
 type optionsParser struct {
-	// intermediate data that needs to be resolved
-	reportList []ast.Identifier
-
 	target string // target language
 	out    *grammar.Options
 	*status.Status
@@ -34,8 +31,11 @@ func newOptionsParser(s *status.Status) *optionsParser {
 func (p *optionsParser) parseFrom(file ast.File) {
 	target, _ := file.Header().Target()
 	p.target = target.Text()
-
 	opts := p.out
+	if p.target == "cc" {
+		opts.NoEmptyRules = true
+	}
+
 	seen := make(map[string]int)
 	for _, opt := range file.Options() {
 		name := opt.Key().Text()
@@ -51,6 +51,10 @@ func (p *optionsParser) parseFrom(file ast.File) {
 			opts.Package = p.parseExpr(opt.Value(), opts.Package).(string)
 		case "genCopyright":
 			opts.Copyright = p.parseExpr(opt.Value(), opts.Copyright).(bool)
+		case "scanBytes":
+			opts.ScanBytes = p.parseExpr(opt.Value(), opts.ScanBytes).(bool)
+		case "caseInsensitive":
+			opts.CaseInsensitive = p.parseExpr(opt.Value(), opts.CaseInsensitive).(bool)
 		case "tokenLine":
 			opts.TokenLine = p.parseExpr(opt.Value(), opts.TokenLine).(bool)
 		case "tokenLineOffset":
@@ -59,6 +63,9 @@ func (p *optionsParser) parseFrom(file ast.File) {
 			opts.TokenColumn = p.parseExpr(opt.Value(), opts.TokenColumn).(bool)
 		case "nonBacktracking":
 			opts.NonBacktracking = p.parseExpr(opt.Value(), opts.NonBacktracking).(bool)
+		case "flexMode":
+			p.validLangs(opt.Key(), "cc")
+			opts.FlexMode = p.parseExpr(opt.Value(), opts.FlexMode).(bool)
 		case "genParser":
 			opts.GenParser = p.parseExpr(opt.Value(), opts.GenParser).(bool)
 		case "cancellable":
@@ -71,6 +78,9 @@ func (p *optionsParser) parseFrom(file ast.File) {
 			opts.WriteBison = p.parseExpr(opt.Value(), opts.WriteBison).(bool)
 		case "recursiveLookaheads":
 			opts.RecursiveLookaheads = p.parseExpr(opt.Value(), opts.RecursiveLookaheads).(bool)
+		case "tokenStream":
+			p.validLangs(opt.Key(), "go")
+			opts.TokenStream = p.parseExpr(opt.Value(), opts.TokenStream).(bool)
 		case "eventBased":
 			opts.EventBased = p.parseExpr(opt.Value(), opts.EventBased).(bool)
 		case "genSelector":
@@ -85,14 +95,16 @@ func (p *optionsParser) parseFrom(file ast.File) {
 			opts.OptimizeTables = p.parseExpr(opt.Value(), opts.OptimizeTables).(bool)
 		case "defaultReduce":
 			opts.DefaultReduce = p.parseExpr(opt.Value(), opts.DefaultReduce).(bool)
+		case "noEmptyRules":
+			opts.NoEmptyRules = p.parseExpr(opt.Value(), opts.NoEmptyRules).(bool)
+		case "maxLookahead":
+			opts.MaxLookahead = p.parseExpr(opt.Value(), opts.MaxLookahead).(int)
 		case "eventFields":
 			p.validLangs(opt.Key(), "go")
 			opts.EventFields = p.parseExpr(opt.Value(), opts.EventFields).(bool)
 		case "eventAST":
 			p.validLangs(opt.Key(), "go")
 			opts.EventAST = p.parseExpr(opt.Value(), opts.EventAST).(bool)
-		case "reportTokens":
-			p.reportList = p.parseTokenList(opt.Value())
 		case "extraTypes":
 			opts.ExtraTypes = p.parseExpr(opt.Value(), opts.ExtraTypes).([]syntax.ExtraType)
 		case "customImpl":
@@ -195,6 +207,15 @@ func (p *optionsParser) parseExpr(e ast.Expression, defaultVal any) any {
 		if _, ok := defaultVal.(bool); ok {
 			return e.Text() == "true"
 		}
+	case *ast.IntegerLiteral:
+		if _, ok := defaultVal.(int); ok {
+			val, err := strconv.ParseInt(e.Text(), 10, 64)
+			if err != nil {
+				p.Errorf(e, "cannot parse integer literal: %v", err)
+				return defaultVal
+			}
+			return int(val)
+		}
 	case *ast.StringLiteral:
 		if _, ok := defaultVal.(string); ok {
 			s, err := strconv.Unquote(e.Text())
@@ -214,37 +235,4 @@ func (p *optionsParser) parseExpr(e ast.Expression, defaultVal any) any {
 		p.Errorf(e.TmNode(), "%T is expected", defaultVal)
 	}
 	return defaultVal
-}
-
-func (p *optionsParser) parseTokenList(e ast.Expression) []ast.Identifier {
-	if arr, ok := e.(*ast.Array); ok {
-		var ret []ast.Identifier
-		for _, el := range arr.Expression() {
-			if ref, ok := el.(*ast.Symref); ok {
-				if args, ok := ref.Args(); ok {
-					p.Errorf(args, "terminals cannot be templated")
-					continue
-				}
-				ret = append(ret, ref.Name())
-				continue
-			}
-			p.Errorf(el.TmNode(), "symbol reference is expected")
-		}
-		return ret
-	}
-	p.Errorf(e.TmNode(), "list of symbols is expected")
-	return nil
-}
-
-func (p *optionsParser) resolve(resolver *resolver) {
-	opts := p.out
-	opts.ReportTokens = make([]int, 0, len(p.reportList))
-	for _, id := range p.reportList {
-		sym, ok := resolver.syms[id.Text()]
-		if !ok {
-			p.Errorf(id, "unresolved reference '%v'", id.Text())
-			continue
-		}
-		opts.ReportTokens = append(opts.ReportTokens, sym)
-	}
 }

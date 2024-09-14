@@ -14,10 +14,10 @@ writeBison = true
 fileNode = "Module"
 cancellable = true
 recursiveLookaheads = true
-reportTokens = [MultiLineComment, SingleLineComment, invalid_token,
-                NoSubstitutionTemplate, TemplateHead, TemplateMiddle, TemplateTail]
+optimizeTables = true
 extraTypes = ["InsertedSemicolon"]
-customImpl = ["fetchNext", "Parser", "ParserInit", "parse", "recoverFromError", "symbol", "stackEntry", "session", "lookaheadNext"]
+customImpl = ["fetchNext", "Parser", "ParserInit", "parse", "recoverFromError", "session", "lexerCopy", "streamNext"]
+tokenStream = true
 
 :: lexer
 
@@ -327,6 +327,14 @@ resolveShift:
 :: parser
 
 %input Module, TypeSnippet, ExpressionSnippet, NamespaceNameSnippet;
+
+%inject MultiLineComment -> MultiLineComment;
+%inject SingleLineComment -> SingleLineComment;
+%inject invalid_token -> InvalidToken;
+%inject NoSubstitutionTemplate -> NoSubstitutionTemplate;
+%inject TemplateHead -> TemplateHead;
+%inject TemplateMiddle -> TemplateMiddle;
+%inject TemplateTail -> TemplateTail;
 
 TypeSnippet :
     Type ;
@@ -1837,7 +1845,7 @@ AmbientModuleElement -> TsAmbientElement /* interface */:
 
 %%
 
-${template go_lexer.onBeforeLexer}
+{{define "onBeforeLexer"}}
 type Dialect int
 
 const (
@@ -1845,40 +1853,25 @@ const (
 	Typescript
 	TypescriptJsx
 )
-${end}
+{{end}}
 
-${template go_lexer.stateVars-}
+{{define "stateVars"}}
 	Dialect Dialect
-	token   token.Token // last token
+	token   token.Type // last token
 	Stack   []int // stack of JSX states, non-empty for StateJsx*
-${end}
+{{end}}
 
-${template go_lexer.initStateVars-}
+{{define "initStateVars"}}
 	l.Dialect = Javascript
 	l.token = token.UNAVAILABLE
 	l.Stack = nil
-${end}
+{{end}}
 
-${template go_parser.setupLookaheadLexer-}
-	var lexer Lexer
-	lexer.source = l.source
-	lexer.ch= l.ch
-	lexer.offset= l.offset
-	lexer.tokenOffset = l.tokenOffset
-	lexer.line = l.line
-	lexer.tokenLine = l.tokenLine
-	lexer.scanOffset = l.scanOffset
-	lexer.State = l.State
-	lexer.Dialect = l.Dialect
-	lexer.token = l.token
-	// Note: Stack is intentionally omitted.
-${end}
-
-${template go_lexer.onBeforeNext-}
+{{define "onBeforeNext"}}
 	prevLine := l.tokenLine
-${end}
+{{end}}
 
-${template go_lexer.onAfterNext-}
+{{define "onAfterNext"}}
 
 	// There is an ambiguity in the language that a slash can either represent
 	// a division operator, or start a regular expression literal. This gets
@@ -1923,8 +1916,7 @@ ${template go_lexer.onAfterNext-}
 				// Start a new JSX tag.
 				switch l.Dialect {
 				case TypescriptJsx:
-					copy := *l
-					copy.Stack = nil
+					copy := l.Copy()
 					copy.Dialect = Typescript
 					if copy.Next() == token.IDENTIFIER {
 						var isArrowFunc bool
@@ -2029,9 +2021,9 @@ ${template go_lexer.onAfterNext-}
 		}
 	}
 	l.token = tok
-${end}
+{{end}}
 
-${template go_lexer.onAfterLexer}
+{{define "onAfterLexer"}}
 func (l *Lexer) pushState(newState int) {
 	l.Stack = append(l.Stack, l.State)
 	l.State = newState
@@ -2045,14 +2037,25 @@ func (l *Lexer) popState() {
 		l.State = StateDiv
 	}
 }
-${end}
+{{end}}
 
-${template go_parser.callLookaheadNext(memoization)}lookaheadNext(&lexer, end, ${memoization?'nil /*empty stack*/':'stack'})${end}
+{{define "streamStateVars" -}}
+	delayed      symbol // by semicolon insertion
+	recoveryMode bool   // forces use of simplified semicolon insertion rules during error recovery
 
-${template newTemplates-}
+	lastToken token.Type
+	lastEnd   int
+	lastLine  int
+{{end}}
 
-{{define "callLookaheadNext" -}}
-lookaheadNext(&lexer, end, {{if eq . true}}nil /*empty stack*/{{else}}stack{{end}})
-{{- end}}
+{{define "initStreamStateVars" -}}
+	s.delayed.symbol = noToken
+	s.recoveryMode = false
+	s.lastToken = token.UNAVAILABLE
+{{end}}
 
-${end}
+{{define "onAfterStream" -}}
+func (s *TokenStream) SetDialect(d Dialect) {
+	s.lexer.Dialect = d
+}
+{{end}}

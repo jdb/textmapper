@@ -10,14 +10,14 @@
 #include "json_lexer.h"
 
 namespace json {
-std::unordered_set<int8_t> barStates = {
-    1,
-    3,
-    21,
-    29,
-};
-
 [[maybe_unused]] constexpr int8_t fooState = 27;
+
+std::unordered_set<int8_t> barStates = {
+    0,
+    2,
+    20,
+    32,
+};
 
 constexpr inline absl::string_view tmNonterminals[] = {
     "JSONText",
@@ -32,6 +32,7 @@ constexpr inline absl::string_view tmNonterminals[] = {
     "JSONArray",
     "JSONElementList",
     "JSONElementListopt",
+    "JSONMember$1",
 };
 constexpr size_t tmNonterminalsLen =
     sizeof(tmNonterminals) / sizeof(tmNonterminals[0]);
@@ -52,55 +53,54 @@ std::string symbolName(int32_t sym) {
 }
 
 constexpr int32_t tmDefGoto[] = {
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 };
 
 constexpr int32_t tmGoto[] = {
-    39, 31, 3, 35, 49, 18, 50, -11, 24, 54, 56, 58,
+    37, 27, 54, 4, 19, 33, 38, 31, 24, 47, 59, 62, 40,
 };
 
 constexpr int32_t tmDefAct[] = {
-    20, -1, -1, -1, 17, 18, 10, 11, 12, 13, 0,  15, 14, -1, 16, -1,
-    29, -1, -1, -1, 19, -1, 28, 22, -1, 25, 26, -1, 30, -1, 21, -1,
-    8,  9,  1,  2,  3,  4,  24, 6,  5,  7,  27, -1, -1, -1,
+    -1, 20, -1, 17, 18, 10, 11, 12, 13, 0,  15, -1, 14, -1, 16, 29,
+    -1, -1, -1, -1, -1, 28, 19, 22, -1, 25, 26, -1, 30, 33, 21, -1,
+    -1, 27, 8,  9,  1,  2,  3,  4,  24, 6,  5,  7,  -1, -1, -1,
 };
 
 constexpr int32_t tmActionBase = -20;
 
 constexpr int32_t tmAction[] = {
-    -20, 14,  -1,  -2,  -20, -20, -20, -20, -20, -20, -20, -20,
-    -20, 9,   -20, 19,  -20, 0,   12,  55,  -20, 14,  -20, -20,
-    27,  -20, -20, 20,  -20, 30,  -20, 43,  -20, -20, -20, -20,
-    -20, -20, -20, -20, -20, -20, -20, -20, 37,  -20,
+    14,  -20, -2,  -20, -20, -20, -20, -20, -20, -20, -20, -1,
+    -20, 5,   -20, -20, 50,  3,   8,   49,  14,  -20, -20, -20,
+    11,  -20, -20, 20,  -20, -20, -20, 52,  30,  -20, -20, -20,
+    -20, -20, -20, -20, -20, -20, -20, -20, 22,  -20, -20,
 };
 
-constexpr int32_t tmTableLen = 84;
+constexpr int32_t tmTableLen = 80;
 
 constexpr int8_t tmTable[] = {
-    33,  -17, -5,  32,  10,  31,  16,  -23, 26,  -6,  -7,  -21, -8,  -9,
-    -10, -11, 33,  -24, -5,  12,  42,  12,  -22, -32, 28,  -6,  -7,  -33,
-    -8,  -9,  -10, -11, 33,  -31, -5,  43,  11,  -47, 11,  12,  44,  -34,
-    -35, 27,  -36, -37, -38, 40,  -39, 2,   2,   13,  2,   13,  -26, 14,
-    11,  14,  -25, 17,  38,  18,  -27, 0,   39,  0,   -26, 0,   0,   0,
-    2,   13,  0,   0,   -27, 14,  0,   0,   2,   13,  0,   0,   0,   41,
+    34,  -20, -4, 32, 10,  45, 10,  -21, -23, -5,  -6,  -24, -7,  -8,  -9,  -10,
+    34,  -31, -4, 11, 11,  11, -48, -32, 10,  -5,  -6,  -33, -7,  -8,  -9,  -10,
+    34,  12,  -4, 12, 41,  44, 13,  11,  13,  -36, -37, 27,  -38, -39, -40, 14,
+    -41, 14,  26, 11, -25, 12, 9,   31,  15,  -22, 13,  40,  -26, 16,  33,  -26,
+    17,  42,  0,  14, -27, 32, 13,  -27, 0,   0,   28,  0,   0,   0,   0,   43,
 };
 
 constexpr int8_t tmCheck[] = {
-    2,  2,  4,  5,  1,  5,  3,  7,  19, 11, 12, 2,  14, 15, 16, 17, 2,
-    5,  4,  1,  31, 3,  3,  3,  21, 11, 12, 7,  14, 15, 16, 17, 2,  6,
-    4,  0,  1,  0,  3,  21, 1,  11, 12, 19, 14, 15, 16, 29, 18, 0,  1,
-    1,  3,  3,  11, 1,  21, 3,  3,  3,  29, 3,  19, -1, 29, -1, 11, -1,
-    -1, -1, 21, 21, -1, -1, 19, 21, -1, -1, 29, 29, -1, -1, -1, 29,
+    2,  2,  4,  5,  0,  1,  2,  2,  5,  11, 12, 3,  14, 15, 16, 17,
+    2,  6,  4,  0,  1,  2,  0,  3,  20, 11, 12, 7,  14, 15, 16, 17,
+    2,  0,  4,  2,  32, 0,  0,  20, 2,  11, 12, 19, 14, 15, 16, 0,
+    18, 2,  19, 32, 3,  20, 0,  5,  2,  7,  20, 32, 11, 2,  31, 11,
+    2,  32, -1, 20, 19, 29, 32, 19, -1, -1, 20, -1, -1, -1, -1, 32,
 };
 
 constexpr int8_t tmRuleLen[] = {
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 3, 0, 4, 3, 0, 3, 1, 1, 3, 3, 1, 3, 1, 0, 0,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 3, 0, 4, 3, 0, 4, 1, 1, 3, 3, 1, 3, 1, 0, 0, 0,
 };
 
 constexpr int32_t tmRuleSymbol[] = {
-    20, 21, 21, 21, 21, 21, 21, 21, 21, 21, 22, 22, 22, 22, 22, 22, 22,
-    22, 22, 23, 24, 25, 25, 26, 27, 27, 28, 28, 29, 30, 30, 31, 31, 26,
+    20, 21, 21, 21, 21, 21, 21, 21, 21, 21, 22, 22, 22, 22, 22, 22, 22, 22,
+    22, 23, 24, 25, 25, 26, 27, 27, 28, 28, 29, 30, 30, 31, 31, 32, 26,
 };
 
 constexpr uint32_t tmRuleType[] = {
@@ -136,7 +136,7 @@ constexpr uint32_t tmRuleType[] = {
     0,            // lookahead_notEmptyObject :
     static_cast<uint32_t>(NodeType::JSONMember) +
         (static_cast<uint32_t>(NodeFlags::Foo)
-         << 16),  // JSONMember : JSONString ':' JSONValue
+         << 16),  // JSONMember : JSONString ':' JSONMember$1 JSONValue
     static_cast<uint32_t>(NodeType::SyntaxProblem),  // JSONMember : error
     0,  // JSONMemberList : JSONMember
     0,  // JSONMemberList : JSONMemberList .foo ',' JSONMember
@@ -147,6 +147,7 @@ constexpr uint32_t tmRuleType[] = {
     0,            // JSONElementList : JSONElementList ',' JSONValue_A
     0,            // JSONElementListopt : JSONElementList
     0,            // JSONElementListopt :
+    0,            // JSONMember$1 :
 };
 
 // set(first JSONValue_A) = LBRACE, LBRACK, JSONSTRING, JSONNUMBER, KW_NULL,
@@ -155,7 +156,7 @@ constexpr uint32_t tmRuleType[] = {
     2, 4, 11, 12, 14, 15, 16, 17,
 };
 
-// set(follow error) = RBRACE, COMMA
+// set(follow ERROR) = RBRACE, COMMA
 [[maybe_unused]] constexpr int32_t afterErr[] = {
     3,
     7,
@@ -274,7 +275,7 @@ ABSL_MUST_USE_RESULT bool AtEmptyObject(Lexer& lexer, int32_t next) {
   if (debugSyntax) {
     LOG(INFO) << "lookahead EmptyObject; next: " << symbolName(next);
   }
-  return lookahead(lexer, next, 0, 43);
+  return lookahead(lexer, next, 1, 45);
 }
 
 void Parser::reportIgnoredToken(symbol sym) {
@@ -546,6 +547,11 @@ absl::Status Parser::action26([[maybe_unused]] stackEntry& lhs,
   { lhs.value.d = b; }
   return absl::OkStatus();
 }
+absl::Status Parser::action33([[maybe_unused]] stackEntry& lhs,
+                              [[maybe_unused]] const stackEntry* rhs) {
+  { LOG(INFO) << rhs[-1].sym.location.begin; }
+  return absl::OkStatus();
+}
 
 absl::Status Parser::applyRule(int32_t rule, stackEntry& lhs,
                                [[maybe_unused]] const stackEntry* rhs,
@@ -593,7 +599,7 @@ absl::Status Parser::applyRule(int32_t rule, stackEntry& lhs,
         return action_result;
       }
     } break;
-    case 24:  // JSONMember : JSONString ':' JSONValue
+    case 24:  // JSONMember : JSONString ':' JSONMember$1 JSONValue
     {
       absl::Status action_result = action24(lhs, rhs);
       if (!action_result.ok()) {
@@ -607,8 +613,15 @@ absl::Status Parser::applyRule(int32_t rule, stackEntry& lhs,
         return action_result;
       }
     } break;
+    case 33:  // JSONMember$1 :
+    {
+      absl::Status action_result = action33(lhs, rhs);
+      if (!action_result.ok()) {
+        return action_result;
+      }
+    } break;
 
-    case 33:
+    case 34:
       if (AtEmptyObject(lexer, next_symbol_.symbol)) {
         lhs.sym.symbol = 24; /* lookahead_EmptyObject */
       } else {
@@ -625,6 +638,13 @@ absl::Status Parser::applyRule(int32_t rule, stackEntry& lhs,
               static_cast<NodeFlags>(nt >> 16), lhs.sym.location);
   }
   return absl::OkStatus();
+}
+
+// There are n symbols in the RHS. The locations can be accessed by
+// get_location(i) where i is in [0, n-1].
+ABSL_MUST_USE_RESULT Lexer::Location DefaultCreateLocationFromRHS(
+    int32_t n, absl::FunctionRef<Lexer::Location(int32_t)> get_location) {
+  return Lexer::Location(get_location(0).begin, get_location(n - 1).end);
 }
 
 absl::Status Parser::Parse(int8_t start, int8_t end, Lexer& lexer) {
@@ -670,8 +690,8 @@ absl::Status Parser::Parse(int8_t start, int8_t end, Lexer& lexer) {
                                              stack.back().sym.location.end);
         entry.value = stack.back().value;
       } else {
-        entry.sym.location = Lexer::Location(rhs[0].sym.location.begin,
-                                             rhs[ln - 1].sym.location.end);
+        entry.sym.location = DefaultCreateLocationFromRHS(
+            ln, [&](int32_t i) { return rhs[i].sym.location; });
         entry.value = rhs[0].value;
       }
       absl::Status ret = applyRule(rule, entry, rhs, lexer);

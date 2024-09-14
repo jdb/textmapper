@@ -1,0 +1,76 @@
+language parser(cc);
+
+flexMode = true
+
+:: lexer
+
+foo {foo}:
+comment:  (space)
+
+',': /,/
+
+«foo»:
+# err: redeclaration of 'foo'
+
+abc: «/[a-z]+/»  («class»)
+# err: only individual ASCII characters are allowed as patterns in flex mode
+# err: unsupported attribute (flex mode)
+
+# \n is a control character, so it is not allowed in flex mode
+
+'\n': «/\n/»
+# err: only individual ASCII characters are allowed as patterns in flex mode
+
+'n': /n/ «-1»
+# err: priorities are not supported in flex mode
+
+'m': /m/ «{ abc }»
+# err: commands are not supported in flex mode
+
+«%x a;»
+# err: start conditions are not supported in flex mode
+
+«<a>» f: /f/
+# err: start conditions are not supported in flex mode
+
+«<a> {
+  bar: /b/
+}»
+# err: start conditions are not supported in flex mode
+
+:: parser
+
+%input a;
+
+a: ',';
+
+
+empty: «»;
+# err: empty alternative without an %empty marker
+
+empty2: ( «»| a);
+# err: empty alternative without an %empty marker
+
+good_rule: %empty;
+
+hidden_empty:
+   «»| abc
+# err: empty alternative without an %empty marker
+   | f
+;
+
+double_empty:
+    %empty «%empty» ;
+# err: duplicate %empty marker
+
+inner_double_empty:
+    (%empty «%empty») ;
+# err: duplicate %empty marker
+
+double_prec:
+    %prec 'n' «%prec 'm'» a ;
+# err: duplicate %prec marker
+
+inner_prec: ( ««%prec 'm'»»| a);
+# err: empty alternative without an %empty marker
+# err: precedence markers are only allowed in the top level rules

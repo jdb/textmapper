@@ -6,12 +6,12 @@ import (
 	"fmt"
 )
 
-// Token is an enum of all terminal symbols of the tm language.
-type Token int
+// Type is an enum of all terminal symbols of the tm language.
+type Type int32
 
 // Token values.
 const (
-	UNAVAILABLE Token = iota - 1
+	UNAVAILABLE Type = iota - 1
 	EOI
 	INVALID_TOKEN
 	SCON
@@ -49,9 +49,12 @@ const (
 	AND               // &
 	ANDAND            // &&
 	DOLLAR            // $
-	ATSIGN            // @
+	AT                // @
+	DIV               // /
+	LBRACE            // {
 	ERROR
 	ID
+	QUOTED_ID
 	AS            // as
 	FALSE         // false
 	IMPORT        // import
@@ -91,9 +94,7 @@ const (
 	SPACE         // space
 	CHAR_X        // x
 	CODE          // {
-	LBRACE        // {
 	REGEXP
-	DIV // /
 
 	NumTokens
 )
@@ -137,8 +138,11 @@ var tokenStr = [...]string{
 	"&&",
 	"$",
 	"@",
+	"/",
+	"{",
 	"ERROR",
 	"ID",
+	"QUOTED_ID",
 	"as",
 	"false",
 	"import",
@@ -178,12 +182,10 @@ var tokenStr = [...]string{
 	"space",
 	"x",
 	"{",
-	"{",
 	"REGEXP",
-	"/",
 }
 
-func (tok Token) String() string {
+func (tok Type) String() string {
 	if tok >= 0 && int(tok) < len(tokenStr) {
 		return tokenStr[tok]
 	}

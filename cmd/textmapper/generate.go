@@ -17,7 +17,7 @@ import (
 
 var genCmd = &command{
 	Name:  "generate",
-	Title: "generate grammars",
+	Title: "generate one or more grammars",
 	Usage: " [flags] [grammars...]",
 	Help: `By default, Textmapper generates code for all grammars in the current directory.
 
@@ -29,7 +29,6 @@ var (
 	includeDirs = genCmd.Flags.String("i", "", "comma-separated list of directories with code generation templates")
 	noBuiltins  = genCmd.Flags.Bool("x", false, "do not use built-in templates for code generation")
 	diffFlag    = genCmd.Flags.Bool("diff", false, "compare generated content against files on disk")
-	compatFlag  = genCmd.Flags.Bool("compat", false, "disable optimizations and attempt to produce the same output as the Java version")
 	cpuprofile  = genCmd.Flags.String("cpuprofile", "", "write a CPU profile into a given file")
 )
 
@@ -78,7 +77,6 @@ func generate(ctx context.Context, files []string) error {
 	var s status.Status
 	start := time.Now()
 	opts := gen.Options{
-		Compat:      *compatFlag,
 		IncludeDirs: includes,
 		NoBuiltins:  *noBuiltins,
 	}
@@ -131,7 +129,7 @@ func (w writer) Write(genfile, content string) error {
 	}
 	err := os.MkdirAll(filepath.Dir(path), 0755)
 	if err != nil {
-		return fmt.Errorf("Error creating directory: %w", err)
+		return fmt.Errorf("error creating directory: %w", err)
 	}
 	return os.WriteFile(path, []byte(content), 0644)
 }

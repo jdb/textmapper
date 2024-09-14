@@ -3,12 +3,12 @@ language json(go);
 lang = "json"
 package = "github.com/inspirer/textmapper/parsers/json"
 eventBased = true
-reportTokens = [MultiLineComment, invalid_token, JSONString]
+optimizeTables = true
 extraTypes = ["NonExistingType"]
 
 :: lexer
 
-'{': /\{/
+'{' {int64}: /\{/  { $$ = int64(42); }
 '}': /\}/
 '[': /\[/
 ']': /\]/
@@ -46,6 +46,10 @@ invalid_token:
 
 %input JSONText;
 
+%inject MultiLineComment -> MultiLineComment;
+%inject invalid_token -> InvalidToken;
+%inject JSONString -> JSONString;
+
 %generate Literals = set(first JSONValue<+A>);
 
 %flag A;
@@ -66,10 +70,15 @@ JSONValue<A> {Value} -> JSONValue :
   | JSONNumber
 ;
 
-EmptyObject -> EmptyObject : (?= EmptyObject) '{' '}' ;
+EmptyObject -> EmptyObject :
+      (?= EmptyObject)
+         { /* empty mid-rule */ }
+      '{'[lparen] { val := $lparen; if val != int64(42) { panic(fmt.Sprintf("got %v %T", val, val)) } } '}'
+      { val := $lparen; _ = val }
+;
 
 JSONObject -> JSONObject :
-    (?= !EmptyObject) '{' JSONMemberList? '}' ;
+    (?= !EmptyObject) '{'[F] JSONMemberList? { /*mid-rule ${F.offset}*/ } '}' { /*starts ${F.offset}*/ } ;
 
 JSONMember {*Field} -> JSONMember :
     JSONString ':' JSONValue<~A> ;

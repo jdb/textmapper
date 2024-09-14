@@ -56,12 +56,12 @@ const (
 )
 
 func (p *Parser) ParseTest(ctx context.Context, lexer *Lexer) error {
-	_, err := p.parse(ctx, 1, 140, lexer)
+	_, err := p.parse(ctx, 0, 146, lexer)
 	return err
 }
 
 func (p *Parser) ParseDecl1(ctx context.Context, lexer *Lexer) (int, error) {
-	v, err := p.parse(ctx, 2, 141, lexer)
+	v, err := p.parse(ctx, 1, 147, lexer)
 	val, _ := v.(int)
 	return val, err
 }
@@ -99,7 +99,6 @@ func (p *Parser) parse(ctx context.Context, start, end int16, lexer *Lexer) (int
 			var entry stackEntry
 			entry.sym.symbol = tmRuleSymbol[rule]
 			rhs := stack[len(stack)-ln:]
-			stack = stack[:len(stack)-ln]
 			if ln == 0 {
 				if p.next.symbol == noToken {
 					p.fetchNext(ctx, lexer, stack)
@@ -109,9 +108,10 @@ func (p *Parser) parse(ctx context.Context, start, end int16, lexer *Lexer) (int
 				entry.sym.offset = rhs[0].sym.offset
 				entry.sym.endoffset = rhs[ln-1].sym.endoffset
 			}
-			if err := p.applyRule(ctx, rule, &entry, rhs, lexer, &s); err != nil {
+			if err := p.applyRule(ctx, rule, &entry, stack, lexer, &s); err != nil {
 				return nil, err
 			}
+			stack = stack[:len(stack)-len(rhs)]
 			if debugSyntax {
 				fmt.Printf("reduced to: %v\n", symbolName(entry.sym.symbol))
 			}
@@ -143,16 +143,12 @@ func (p *Parser) parse(ctx context.Context, start, end int16, lexer *Lexer) (int
 				if debugSyntax {
 					fmt.Printf("shift: %v (%s)\n", symbolName(p.next.symbol), lexer.Text())
 				}
-				if len(p.pending) > 0 {
-					for _, tok := range p.pending {
-						p.reportIgnoredToken(ctx, tok)
-					}
-					p.pending = p.pending[:0]
-				}
+				p.flush(ctx, p.next)
 				if p.next.symbol != eoiToken {
-					switch token.Token(p.next.symbol) {
+					switch token.Type(p.next.symbol) {
 					case token.IDENTIFIER:
 						p.listener(Identifier, 0, p.next.offset, p.next.endoffset)
+
 					default:
 						break
 					}
@@ -230,21 +226,22 @@ restart:
 	p.next.offset, p.next.endoffset = lexer.Pos()
 }
 
-func lookaheadNext(lexer *Lexer) int32 {
+func lookaheadNext(lexer *Lexer) symbol {
 restart:
 	tok := lexer.Next()
 	switch tok {
 	case token.SINGLELINECOMMENT, token.INVALID_TOKEN, token.MULTILINECOMMENT:
 		goto restart
 	}
-	return int32(tok)
+	s, e := lexer.Pos()
+	return symbol{int32(tok), s, e}
 }
 
-func lookaheadRule(ctx context.Context, lexer *Lexer, next, rule int32, s *session) (sym int32, err error) {
+func lookaheadRule(ctx context.Context, lexer *Lexer, next symbol, rule int32, s *session) (sym int32, err error) {
 	switch rule {
-	case 94:
+	case 100:
 		var ok bool
-		if ok, err = lookahead(ctx, lexer, next, 0, 137, s); ok {
+		if ok, err = lookahead(ctx, lexer, next, 2, 145, s); ok {
 			sym = 43 /* lookahead_FooLookahead */
 		} else {
 			sym = 44 /* lookahead_notFooLookahead */
@@ -254,21 +251,20 @@ func lookaheadRule(ctx context.Context, lexer *Lexer, next, rule int32, s *sessi
 	return 0, nil
 }
 
-func AtFooLookahead(ctx context.Context, lexer *Lexer, next int32, s *session) (bool, error) {
+func AtFooLookahead(ctx context.Context, lexer *Lexer, next symbol, s *session) (bool, error) {
 	if debugSyntax {
-		fmt.Printf("lookahead FooLookahead, next: %v\n", symbolName(next))
+		fmt.Printf("lookahead FooLookahead, next: %v\n", symbolName(next.symbol))
 	}
-	return lookahead(ctx, lexer, next, 0, 137, s)
+	return lookahead(ctx, lexer, next, 2, 145, s)
 }
 
-func lookahead(ctx context.Context, l *Lexer, next int32, start, end int16, s *session) (bool, error) {
-	var lexer Lexer = *l
-
+func lookahead(ctx context.Context, l *Lexer, next symbol, start, end int16, s *session) (bool, error) {
+	lexer := l.Copy()
 	// Use memoization for recursive lookaheads.
-	if next == noToken {
+	if next.symbol == noToken {
 		next = lookaheadNext(&lexer)
 	}
-	key := uint64(l.tokenOffset) + uint64(end)<<40
+	key := uint64(next.offset) + uint64(end)<<40
 	if ret, ok := s.cache[key]; ok {
 		return ret, nil
 	}
@@ -281,10 +277,10 @@ func lookahead(ctx context.Context, l *Lexer, next int32, start, end int16, s *s
 		action := tmAction[state]
 		if action < -2 {
 			// Lookahead is needed.
-			if next == noToken {
+			if next.symbol == noToken {
 				next = lookaheadNext(&lexer)
 			}
-			action = lalr(action, next)
+			action = lalr(action, next.symbol)
 		}
 
 		if action >= 0 {
@@ -320,19 +316,19 @@ func lookahead(ctx context.Context, l *Lexer, next int32, start, end int16, s *s
 			}
 
 			// Shift.
-			if next == noToken {
+			if next.symbol == noToken {
 				next = lookaheadNext(&lexer)
 			}
-			state = gotoState(state, next)
+			state = gotoState(state, next.symbol)
 			stack = append(stack, stackEntry{
-				sym:   symbol{symbol: next},
+				sym:   next,
 				state: state,
 			})
 			if debugSyntax {
-				fmt.Printf("lookahead shift: %v (%s)\n", symbolName(next), lexer.Text())
+				fmt.Printf("lookahead shift: %v (%s)\n", symbolName(next.symbol), lexer.Text())
 			}
-			if state != -1 && next != eoiToken {
-				next = noToken
+			if state != -1 && next.symbol != eoiToken {
+				next.symbol = noToken
 			}
 		}
 
@@ -348,55 +344,64 @@ func lookahead(ctx context.Context, l *Lexer, next int32, start, end int16, s *s
 	return state == end, nil
 }
 
-func (p *Parser) applyRule(ctx context.Context, rule int32, lhs *stackEntry, rhs []stackEntry, lexer *Lexer, s *session) (err error) {
+func (p *Parser) applyRule(ctx context.Context, rule int32, lhs *stackEntry, stack []stackEntry, lexer *Lexer, s *session) (err error) {
 	switch rule {
 	case 5: // Declaration : '{' '-' '-' Declaration_list '}'
-		p.listener(Negation, 0, rhs[1].sym.offset, rhs[2].sym.endoffset)
+		p.reportRange(Negation, 0, stack[len(stack)-4:len(stack)-2])
 	case 6: // Declaration : '{' '-' '-' '}'
-		p.listener(Negation, 0, rhs[1].sym.offset, rhs[2].sym.endoffset)
+		p.reportRange(Negation, 0, stack[len(stack)-3:len(stack)-1])
 	case 7: // Declaration : '{' '-' Declaration_list '}'
-		p.listener(Negation, 0, rhs[1].sym.offset, rhs[1].sym.endoffset)
+		p.reportRange(Negation, 0, stack[len(stack)-3:len(stack)-2])
 	case 8: // Declaration : '{' '-' '}'
-		p.listener(Negation, 0, rhs[1].sym.offset, rhs[1].sym.endoffset)
+		p.reportRange(Negation, 0, stack[len(stack)-2:len(stack)-1])
 	case 11: // Declaration : lastInt
 		{
 			println("it works")
 		}
 	case 12: // Declaration : IntegerConstant '[' ']'
-		nn0, _ := rhs[0].value.(int)
+		nn0, _ := stack[len(stack)-3].value.(int)
 		{
 			switch nn0 {
 			case 7:
-				p.listener(Int7, 0, rhs[0].sym.offset, rhs[2].sym.endoffset)
+				p.listener(Int7, 0, stack[len(stack)-3].sym.offset, stack[len(stack)-1].sym.endoffset)
 			case 9:
-				p.listener(Int9, 0, rhs[0].sym.offset, rhs[2].sym.endoffset)
+				p.listener(Int9, 0, stack[len(stack)-3].sym.offset, stack[len(stack)-1].sym.endoffset)
 			}
 		}
 	case 13: // Declaration : IntegerConstant
-		nn0, _ := rhs[0].value.(int)
+		nn0, _ := stack[len(stack)-1].value.(int)
 		{
 			switch nn0 {
 			case 7:
-				p.listener(Int7, 0, rhs[0].sym.offset, rhs[0].sym.endoffset)
+				p.listener(Int7, 0, stack[len(stack)-1].sym.offset, stack[len(stack)-1].sym.endoffset)
 			case 9:
-				p.listener(Int9, 0, rhs[0].sym.offset, rhs[0].sym.endoffset)
+				p.listener(Int9, 0, stack[len(stack)-1].sym.offset, stack[len(stack)-1].sym.endoffset)
 			}
 		}
 	case 15: // Declaration : 'test' '(' empty1 ')'
-		p.listener(Empty1, 0, rhs[2].sym.offset, rhs[2].sym.endoffset)
+		p.reportRange(Empty1, 0, stack[len(stack)-2:len(stack)-1])
 	case 17: // Declaration : 'test' IntegerConstant
-		p.listener(Icon, InTest, rhs[1].sym.offset, rhs[1].sym.endoffset)
+		p.reportRange(Icon, InTest, stack[len(stack)-1:len(stack)-0])
 	case 18: // Declaration : 'eval' lookahead_notFooLookahead '(' expr ')' empty1
-		fixTrailingWS(lhs, rhs)
+		fixTrailingWS(lhs, stack[len(stack)-6:])
 	case 21: // Declaration : 'decl2' ':' QualifiedNameopt
-		fixTrailingWS(lhs, rhs)
-	case 88: // customPlus : '\\' primaryExpr '+' expr
-		{
-			p.listener(PlusExpr, 0, rhs[0].sym.offset, rhs[3].sym.endoffset)
+		fixTrailingWS(lhs, stack[len(stack)-3:])
+	case 83: // If : 'if' '(' O ')' Decl2
+		{ /* 4: stack[len(stack)-1].value */
 		}
-	case 94:
+	case 94: // customPlus : '\\' primaryExpr '+' expr
+		{
+			p.listener(PlusExpr, 0, stack[len(stack)-4].sym.offset, stack[len(stack)-1].sym.endoffset)
+		}
+	case 96: // primaryExpr : IntegerConstant
+		p.listener(Bar, 0,
+			stack[len(stack)-1].sym.offset, stack[len(stack)-1].sym.offset)
+	case 97: // primaryExpr_WithoutAs : IntegerConstant
+		p.listener(Bar, 0,
+			stack[len(stack)-1].sym.offset, stack[len(stack)-1].sym.offset)
+	case 100:
 		var ok bool
-		if ok, err = AtFooLookahead(ctx, lexer, p.next.symbol, s); ok {
+		if ok, err = AtFooLookahead(ctx, lexer, p.next, s); ok {
 			lhs.sym.symbol = 43 /* lookahead_FooLookahead */
 		} else {
 			lhs.sym.symbol = 44 /* lookahead_notFooLookahead */
@@ -424,9 +429,16 @@ func fixTrailingWS(lhs *stackEntry, rhs []stackEntry) {
 	}
 }
 
+func (p *Parser) reportRange(t NodeType, flags NodeFlags, rhs []stackEntry) {
+	for len(rhs) > 1 && rhs[len(rhs)-1].sym.offset == rhs[len(rhs)-1].sym.endoffset {
+		rhs = rhs[:len(rhs)-1]
+	}
+	p.listener(t, flags, rhs[0].sym.offset, rhs[len(rhs)-1].sym.endoffset)
+}
+
 func (p *Parser) reportIgnoredToken(ctx context.Context, tok symbol) {
 	var t NodeType
-	switch token.Token(tok.symbol) {
+	switch token.Type(tok.symbol) {
 	case token.SINGLELINECOMMENT:
 		t = SingleLineComment
 	case token.INVALID_TOKEN:
@@ -437,9 +449,25 @@ func (p *Parser) reportIgnoredToken(ctx context.Context, tok symbol) {
 		return
 	}
 	if debugSyntax {
-		fmt.Printf("ignored: %v as %v\n", token.Token(tok.symbol), t)
+		fmt.Printf("ignored: %v as %v\n", token.Type(tok.symbol), t)
 	}
 	p.listener(t, 0, tok.offset, tok.endoffset)
+}
+
+// flush reports all pending tokens up to a given symbol.
+func (p *Parser) flush(ctx context.Context, sym symbol) {
+	if len(p.pending) > 0 && p.listener != nil {
+		for i, tok := range p.pending {
+			if tok.endoffset > sym.endoffset {
+				// Note: this copying should not happen during normal operation, only
+				// during error recovery.
+				p.pending = append(p.pending[:0], p.pending[i:]...)
+				return
+			}
+			p.reportIgnoredToken(ctx, tok)
+		}
+		p.pending = p.pending[:0]
+	}
 }
 
 func parserEnd() {}

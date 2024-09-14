@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/inspirer/textmapper/lalr"
 	"github.com/inspirer/textmapper/lex"
@@ -29,6 +28,7 @@ type Symbol struct {
 	Type      string
 	Space     bool // tokens that should be ignored by the parser.
 	CanBeNull bool // the 'error' token and nullable nonterminals can match an empty string
+	FlexID    int  // Flex token ID (in flex-mode only)
 	Origin    status.SourceNode
 }
 
@@ -87,7 +87,7 @@ type ActionVars struct {
 }
 
 // Resolve resolves "val" to an RHS index for the current rule.
-func (a ActionVars) Resolve(val string) (int, bool) {
+func (a *ActionVars) Resolve(val string) (int, bool) {
 	pos, ok := a.CmdArgs.Names[val]
 	if !ok {
 		var err error
@@ -108,8 +108,11 @@ func (a ActionVars) Resolve(val string) (int, bool) {
 	return ret, true
 }
 
-// String is used in test failure messages.
-func (a ActionVars) String() string {
+// String is used as a digest of a semantic action environment (and also as a debug string).
+func (a *ActionVars) String() string {
+	if a == nil {
+		return "nil"
+	}
 	var ret []string
 	for k, pos := range a.CmdArgs.Names {
 		v, ok := a.Remap[pos]
@@ -122,7 +125,7 @@ func (a ActionVars) String() string {
 		ret = append(ret, fmt.Sprintf("%v:%v", k, v))
 	}
 	sort.Strings(ret)
-	return fmt.Sprintf("{#%v %v %#v->%v}", a.MaxPos-1, ret, a.Types, a.LHSType)
+	return fmt.Sprintf("{#%v %v %#v->%v d=%v}", a.MaxPos-1, ret, a.Types, a.LHSType, a.Delta)
 }
 
 // ClassAction resolves class terminals into more specific tokens (such as keywords).
@@ -145,9 +148,8 @@ type Lexer struct {
 	ClassActions    []ClassAction
 	Actions         []SemanticAction
 	InvalidToken    int
-	RuleToken       []int               // maps actions into tokens; empty if the mapping is 1:1
-	MappedTokens    []syntax.RangeToken // TODO move into Parser
-	UsedFlags       []string            // list of used flags inside mapped tokens
+	RuleToken       []int    // maps actions into tokens; empty if the mapping is 1:1
+	UsedFlags       []string // list of used flags inside mapped tokens
 }
 
 // Rule is a parser rule with a semantic action.
@@ -161,6 +163,7 @@ type Parser struct {
 	Inputs       []syntax.Input
 	Nonterms     []*syntax.Nonterm
 	Prec         []lalr.Precedence // TODO remove since this is a lalr input
+	MappedTokens []syntax.RangeToken
 	Rules        []*Rule
 	Tables       *lalr.Tables
 	Actions      []SemanticAction
@@ -171,52 +174,19 @@ type Parser struct {
 	NumTerminals int
 }
 
-func (p *Parser) TableStats() string {
-	var b strings.Builder
-
-	t := p.Tables
-	if t == nil {
-		return "No tables\n"
-	}
-
-	fmt.Fprintf(&b, "LALR:\n\t%v terminals, %v nonterminals, %v rules, %v states, %v markers, %v lookaheads\n", p.NumTerminals, len(p.Nonterms), len(t.RuleLen), t.NumStates, len(t.Markers), len(t.Lookaheads))
-	fmt.Fprintf(&b, "Action Table:\n\t%d x %d, expanded size = %.1f KB\n", t.NumStates, p.NumTerminals, float64(t.NumStates*p.NumTerminals*4)/1024.)
-	var lr0, nonZero, total int
-	for _, val := range t.Action {
-		if val >= -2 {
-			lr0++
-			continue
-		}
-		total += p.NumTerminals
-		for a := -3 - val; t.Lalr[a] >= 0; a += 2 {
-			if t.Lalr[a+1] >= 0 {
-				nonZero++
-			}
-		}
-	}
-	fmt.Fprintf(&b, "\tLR0 states: %v (%.2v%%)\n", lr0, float64(lr0*100)/float64(t.NumStates))
-	fmt.Fprintf(&b, "\t%.2v%% of the LALR table is reductions (%.1f KB)\n", float64(nonZero*100)/float64(total), float64(nonZero*4)/1024.)
-
-	syms := p.NumTerminals + len(p.Nonterms)
-	fmt.Fprintf(&b, "Goto Table:\n\t%d x %d, expanded size = %.1f KB\n", t.NumStates, syms, float64(t.NumStates*syms*4)/float64(1024))
-
-	nonZero = len(t.FromTo) / 2
-	total = t.NumStates * syms
-	fmt.Fprintf(&b, "\t%.2v%% of the GOTO table is populated (%.1f KB)\n", float64(nonZero*100)/float64(total), float64(nonZero*4)/1024.)
-
-	return b.String()
-}
-
 // Options carries grammar generation parameters.
 type Options struct {
 	Copyright  bool
 	CustomImpl []string
 
 	// Lexer features.
+	ScanBytes       bool // generate a 8-bit scanner that consumes bytes instead of runes
+	CaseInsensitive bool // generate a case-insensitive scanner
 	TokenLine       bool // true by default
 	TokenLineOffset bool
 	TokenColumn     bool
 	NonBacktracking bool
+	FlexMode        bool // assume that the lexer is implemented using Flex (C/C++ only)
 
 	// Parser features.
 	GenParser           bool // true by default
@@ -226,14 +196,16 @@ type Options struct {
 	WriteBison          bool // Output the expanded grammar in a Bison-like format.
 	OptimizeTables      bool
 	DefaultReduce       bool // Prefer some common reduction to errors in non-LR0 states to compress tables even further.
+	NoEmptyRules        bool // Report empty rules without an %empty marker. True by default for C++.
+	MaxLookahead        int  // If set, all lookaheads expressions will be validated to fit this limit.
 
 	// AST generation. Go-specific for now.
+	TokenStream   bool
 	EventBased    bool
 	GenSelector   bool
 	EventFields   bool
 	EventAST      bool
 	FixWhitespace bool
-	ReportTokens  []int // Tokens that should appear in the AST.
 	ExtraTypes    []syntax.ExtraType
 	FileNode      string // The top-level node gets the byte range of the whole input.
 	NodePrefix    string // Prefix for node types.

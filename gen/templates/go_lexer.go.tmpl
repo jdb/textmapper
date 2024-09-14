@@ -23,6 +23,7 @@ const (
 {{ end -}}
 {{ template "lexerText" .}}
 {{ template "lexerValue" .}}
+{{ template "lexerCopy" . -}}
 {{ template "lexerRewind" .}}
 {{ block "onAfterLexer" .}}{{end -}}
 
@@ -174,6 +175,10 @@ restart:
 			// Note: the following code is inlined to avoid performance implications.
 			l.offset = l.scanOffset
 			if l.offset < len(l.source) {
+{{ if .Options.ScanBytes -}}
+				l.ch = rune(l.source[l.offset])
+				l.scanOffset++
+{{ else -}}
 				r, w := rune(l.source[l.offset]), 1
 				if r >= 0x80 {
 					// not ASCII
@@ -181,6 +186,7 @@ restart:
 				}
 				l.scanOffset += w
 				l.ch = r
+{{ end -}}
 			} else {
 				l.ch = -1 // EOI
 			}
@@ -199,7 +205,7 @@ recovered:
 	switch {{if .Lexer.RuleToken}}rule{{else}}tok{{end}} {
 {{ range .Lexer.ClassActions -}}
 {{ if $.Lexer.RuleToken -}}
-	case {{sum .Action 2}}:
+	case {{.Action}}:
 {{ else -}}
 	case {{template "tokenPkg" $}}{{(index $.Syms .Action).ID}}:
 {{ end -}}
@@ -211,7 +217,7 @@ recovered:
 {{ range .Subcases -}}
 			if hash == {{hex .Hash}} && {{quote .Str}} == l.source[l.tokenOffset:l.offset] {
 {{ if $.Lexer.RuleToken -}}
-				rule = {{sum .Action 2}}
+				rule = {{.Action}}
 {{ else -}}
 				tok = {{template "tokenPkg" $}}{{(index $.Syms .Action).ID}}
 {{ end -}}
@@ -230,10 +236,10 @@ recovered:
 	var space bool
 {{ if .Lexer.Actions -}}
 	switch rule {
-	case 0:
+	case 0: // no match
 {{ template "handleInvalidToken" . -}}
 {{ range .Lexer.Actions -}}
-	case {{sum .Action 2}}:{{if .Comments}} // {{join .Comments ", "}}{{end}}
+	case {{.Action}}:{{if .Comments}} // {{join .Comments ", "}}{{end}}
 {{ if .Space -}}
 		space = true
 {{ end -}}
@@ -302,6 +308,17 @@ func (l *Lexer) Value() interface{} {
 }
 {{end -}}
 
+{{- define "lexerCopy" -}}
+{{ if .Options.IsEnabled "lexerCopy" -}}
+// Copy forks the lexer in its current state.
+func (l *Lexer) Copy() Lexer {
+	ret := *l
+	return ret
+}
+
+{{end -}}
+{{end -}}
+
 {{- define "lexerRewind" -}}
 // rewind can be used in lexer actions to accept a portion of a scanned token, or to include
 // more text into it.
@@ -324,6 +341,10 @@ func (l *Lexer) rewind(offset int) {
 	l.scanOffset = offset
 	l.offset = offset
 	if l.offset < len(l.source) {
+{{ if .Options.ScanBytes -}}
+		l.ch = rune(l.source[l.offset])
+		l.scanOffset++
+{{ else -}}
 		r, w := rune(l.source[l.offset]), 1
 		if r >= 0x80 {
 			// not ASCII
@@ -331,6 +352,7 @@ func (l *Lexer) rewind(offset int) {
 		}
 		l.scanOffset += w
 		l.ch = r
+{{ end -}}
 	} else {
 		l.ch = -1 // EOI
 	}
@@ -350,6 +372,9 @@ func (l *Lexer) rewind(offset int) {
 {{ end -}}
 			l.rewind(backupOffset)
 		} else if l.offset == l.tokenOffset {
+			if l.ch == -1 {
+				tok = {{template "tokenPkg" .}}{{(index $.Syms 0).ID}}
+			}
 			l.rewind(l.scanOffset)
 		}
 {{ if .Lexer.RuleToken -}}
@@ -361,6 +386,9 @@ func (l *Lexer) rewind(offset int) {
 		}
 {{ else -}}
 		if l.offset == l.tokenOffset {
+			if l.ch == -1 {
+				tok = {{template "tokenPkg" .}}{{(index $.Syms 0).ID}}
+			}
 			l.rewind(l.scanOffset)
 		}
 {{ end -}}

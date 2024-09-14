@@ -17,7 +17,8 @@ import (
 )
 
 type syntaxLoader struct {
-	resolver *resolver
+	resolver     *resolver
+	noEmptyRules bool
 	*status.Status
 
 	out      *syntax.Model
@@ -38,10 +39,11 @@ type syntaxLoader struct {
 	rhsNames  map[string]int
 }
 
-func newSyntaxLoader(resolver *resolver, s *status.Status) *syntaxLoader {
+func newSyntaxLoader(resolver *resolver, noEmptyRules bool, s *status.Status) *syntaxLoader {
 	return &syntaxLoader{
-		resolver: resolver,
-		Status:   s,
+		resolver:     resolver,
+		noEmptyRules: noEmptyRules,
+		Status:       s,
 
 		namedSets: make(map[string]int),
 		params:    make(map[string]int),
@@ -121,13 +123,12 @@ func (c *syntaxLoader) collectNonterms(p ast.ParserSection) []nontermImpl {
 			if prev, exists := c.resolver.ids[id]; exists {
 				c.Errorf(nonterm.Name(), "%v and %v get the same ID in generated code", name, prev)
 			}
-			if ann, ok := nonterm.Annotations(); ok {
-				c.Errorf(ann.TmNode(), "unsupported syntax")
-			}
 
+			_, inline := nonterm.Inline()
 			nt := &syntax.Nonterm{
 				Name:   name,
 				Origin: nonterm.Name(),
+				Inline: inline,
 			}
 			if rt, ok := nonterm.RawType(); ok {
 				nt.Type = strings.TrimSuffix(strings.TrimPrefix(rt.Text(), "{"), "}")
@@ -196,6 +197,9 @@ func (c *syntaxLoader) collectInputs(p ast.ParserSection, header status.SourceNo
 				if len(c.out.Nonterms[nonterm].Params) > 0 {
 					c.Errorf(name, "input nonterminals cannot be parametrized")
 				}
+				if c.out.Nonterms[nonterm].Inline {
+					c.Errorf(name, "input nonterminals cannot have an 'inline' property")
+				}
 				_, noeoi := ref.NoEoi()
 				c.out.Inputs = append(c.out.Inputs, syntax.Input{Nonterm: nonterm, NoEoi: noeoi})
 			}
@@ -207,8 +211,12 @@ func (c *syntaxLoader) collectInputs(p ast.ParserSection, header status.SourceNo
 	}
 
 	input, found := c.nonterms["input"]
-	if found && len(c.out.Nonterms[input].Params) > 0 {
+	switch {
+	case found && len(c.out.Nonterms[input].Params) > 0:
 		c.Errorf(c.out.Nonterms[input].Origin, "the 'input' nonterminal cannot be parametrized")
+		found = false
+	case found && c.out.Nonterms[input].Inline:
+		c.Errorf(c.out.Nonterms[input].Origin, "the 'input' nonterminal cannot have an 'inline' property")
 		found = false
 	}
 	if !found {
@@ -226,7 +234,7 @@ func (c *syntaxLoader) collectDirectives(p ast.ParserSection) {
 	for _, part := range p.GrammarPart() {
 		switch part := part.(type) {
 		case *ast.DirectiveAssert:
-			set := c.convertSet(part.RhsSet().Expr(), nil /*nonterm*/)
+			set := c.convertSet(part.RhsSet().Expr())
 			index := len(c.out.Sets)
 			c.out.Sets = append(c.out.Sets, set)
 			_, empty := part.Empty()
@@ -325,7 +333,7 @@ func (c *syntaxLoader) collectDirectives(p ast.ParserSection) {
 				continue
 			}
 
-			set := c.convertSet(part.RhsSet().Expr(), nil /*nonterm*/)
+			set := c.convertSet(part.RhsSet().Expr())
 			c.namedSets[name.Text()] = len(c.out.Sets)
 			c.sets = append(c.sets, &grammar.NamedSet{
 				Name: name.Text(),
@@ -341,27 +349,26 @@ func (c *syntaxLoader) collectDirectives(p ast.ParserSection) {
 	}
 }
 
-// TODO remove the second parameter and disallow templating sets
-func (c *syntaxLoader) convertSet(expr ast.SetExpression, nonterm *syntax.Nonterm) *syntax.TokenSet {
+func (c *syntaxLoader) convertSet(expr ast.SetExpression) *syntax.TokenSet {
 	switch expr := expr.(type) {
 	case *ast.SetAnd:
 		return &syntax.TokenSet{
 			Kind:   syntax.Intersection,
-			Sub:    []*syntax.TokenSet{c.convertSet(expr.Left(), nonterm), c.convertSet(expr.Right(), nonterm)},
+			Sub:    []*syntax.TokenSet{c.convertSet(expr.Left()), c.convertSet(expr.Right())},
 			Origin: expr,
 		}
 	case *ast.SetComplement:
 		return &syntax.TokenSet{
 			Kind:   syntax.Complement,
-			Sub:    []*syntax.TokenSet{c.convertSet(expr.Inner(), nonterm)},
+			Sub:    []*syntax.TokenSet{c.convertSet(expr.Inner())},
 			Origin: expr,
 		}
 	case *ast.SetCompound:
-		return c.convertSet(expr.Inner(), nonterm)
+		return c.convertSet(expr.Inner())
 	case *ast.SetOr:
 		return &syntax.TokenSet{
 			Kind:   syntax.Union,
-			Sub:    []*syntax.TokenSet{c.convertSet(expr.Left(), nonterm), c.convertSet(expr.Right(), nonterm)},
+			Sub:    []*syntax.TokenSet{c.convertSet(expr.Left()), c.convertSet(expr.Right())},
 			Origin: expr,
 		}
 	case *ast.SetSymbol:
@@ -380,7 +387,7 @@ func (c *syntaxLoader) convertSet(expr ast.SetExpression, nonterm *syntax.Nonter
 				c.Errorf(op, "operator must be one of: first, last, precede or follow")
 			}
 		}
-		ret.Symbol, ret.Args = c.resolveRef(expr.Symbol(), nonterm)
+		ret.Symbol, ret.Args = c.resolveRef(expr.Symbol(), nil /*nonterm*/)
 		return ret
 	default:
 		c.Errorf(expr.TmNode(), "syntax error")
@@ -763,21 +770,21 @@ func (c *syntaxLoader) convertPart(p ast.RhsPart, nonterm *syntax.Nonterm) *synt
 		text := p.Text()
 		return &syntax.Expr{Kind: syntax.Command, Name: text, CmdArgs: args, Origin: p}
 	case *ast.RhsAssignment:
-		// Ignore any names within the assigned expression.
-		old := c.rhsNames
-		c.rhsNames = nil
 		inner := c.convertPart(p.Inner(), nonterm)
-		c.rhsNames = old
-
 		name := p.Id().Text()
-		if inner.Pos > 0 {
-			c.pushName(name, inner.Pos)
-		}
 		subs := []*syntax.Expr{inner}
 		return &syntax.Expr{Kind: syntax.Assign, Name: name, Sub: subs, Origin: p}
 	case *ast.RhsPlusAssignment:
 		subs := []*syntax.Expr{c.convertPart(p.Inner(), nonterm)}
 		return &syntax.Expr{Kind: syntax.Append, Name: p.Id().Text(), Sub: subs, Origin: p}
+	case *ast.RhsAlias:
+		ret := c.convertPart(p.Inner(), nonterm)
+
+		name := p.Name().Text()
+		if ret.Pos > 0 {
+			c.pushName(name, ret.Pos)
+		}
+		return ret
 	case *ast.RhsCast:
 		// TODO implement
 	case *ast.RhsLookahead:
@@ -804,14 +811,14 @@ func (c *syntaxLoader) convertPart(p ast.RhsPart, nonterm *syntax.Nonterm) *synt
 		subs := []*syntax.Expr{c.convertPart(p.Inner(), nonterm)}
 		return &syntax.Expr{Kind: syntax.Optional, Sub: subs, Origin: p}
 	case *ast.RhsPlusList:
-		seq := c.convertSequence(p.RuleParts(), nonterm, p)
+		seq := c.convertSequence(p.RuleParts(), nonterm, false /*topLevel*/, p)
 		subs := []*syntax.Expr{seq}
 		if sep := c.convertSeparator(p.ListSeparator()); sep.Kind != syntax.Empty {
 			subs = []*syntax.Expr{seq, sep}
 		}
 		return &syntax.Expr{Kind: syntax.List, Sub: subs, ListFlags: syntax.OneOrMore, Pos: c.allocatePos(), Origin: p}
 	case *ast.RhsStarList:
-		seq := c.convertSequence(p.RuleParts(), nonterm, p)
+		seq := c.convertSequence(p.RuleParts(), nonterm, false /*topLevel*/, p)
 		subs := []*syntax.Expr{seq}
 		if sep := c.convertSeparator(p.ListSeparator()); sep.Kind != syntax.Empty {
 			subs = []*syntax.Expr{seq, sep}
@@ -824,7 +831,7 @@ func (c *syntaxLoader) convertPart(p ast.RhsPart, nonterm *syntax.Nonterm) *synt
 		subs := []*syntax.Expr{c.convertPart(p.Inner(), nonterm)}
 		return &syntax.Expr{Kind: syntax.List, Sub: subs, Pos: c.allocatePos(), Origin: p}
 	case *ast.RhsSet:
-		set := c.convertSet(p.Expr(), nonterm)
+		set := c.convertSet(p.Expr())
 		index := len(c.out.Sets)
 		c.out.Sets = append(c.out.Sets, set)
 		return &syntax.Expr{Kind: syntax.Set, Pos: c.allocatePos(), SetIndex: index, Origin: p, Model: c.out}
@@ -842,10 +849,39 @@ func (c *syntaxLoader) convertPart(p ast.RhsPart, nonterm *syntax.Nonterm) *synt
 	return &syntax.Expr{Kind: syntax.Empty, Origin: p.TmNode()}
 }
 
-func (c *syntaxLoader) convertSequence(parts []ast.RhsPart, nonterm *syntax.Nonterm, origin status.SourceNode) *syntax.Expr {
+func (c *syntaxLoader) convertSequence(parts []ast.RhsPart, nonterm *syntax.Nonterm, topLevel bool, origin status.SourceNode) *syntax.Expr {
 	var subs []*syntax.Expr
+	var empty *ast.RhsEmpty
+	var nonEmpty bool
 	for _, p := range parts {
-		subs = append(subs, c.convertPart(p, nonterm))
+		switch p := p.(type) {
+		case *ast.RhsEmpty:
+			if empty != nil {
+				c.Errorf(p, "duplicate %%empty marker")
+			}
+			empty = p
+			continue
+		case *ast.RhsPrec:
+			if !topLevel {
+				c.Errorf(p, "precedence markers are only allowed in the top level rules")
+			}
+			continue
+		case *ast.Command, *ast.StateMarker:
+			// ok
+		default:
+			nonEmpty = true
+		}
+
+		out := c.convertPart(p, nonterm)
+		if out.Kind != syntax.Empty {
+			subs = append(subs, out)
+		}
+	}
+	switch {
+	case c.noEmptyRules && !nonEmpty && empty == nil:
+		c.Errorf(origin, "empty alternative without an %%empty marker")
+	case nonEmpty && empty != nil:
+		c.Errorf(empty, "%%empty marker found inside a non-empty alternative")
 	}
 	switch len(subs) {
 	case 0:
@@ -861,8 +897,8 @@ func (c *syntaxLoader) convertSequence(parts []ast.RhsPart, nonterm *syntax.Nont
 }
 
 type report struct {
-	node     *syntax.Expr
-	selector *syntax.Expr
+	node     *syntax.Expr // of syntax.Arrow
+	selector *syntax.Expr // of syntax.Arrow
 }
 
 func (r report) withDefault(def report) report {
@@ -908,20 +944,27 @@ func (c *syntaxLoader) convertRules(rules []ast.Rule0, nonterm *syntax.Nonterm, 
 			c.rhsPos = 1
 			c.rhsNames = nil
 		}
-		expr := c.convertSequence(rule.RhsPart(), nonterm, rule)
+		var prec *ast.RhsPrec
+		for _, p := range rule.RhsPart() {
+			switch p := p.(type) {
+			case *ast.RhsPrec:
+				if prec != nil {
+					c.Errorf(p, "duplicate %%prec marker")
+					break
+				}
+				prec = p
+			}
+		}
+
+		expr := c.convertSequence(rule.RhsPart(), nonterm, topLevel, rule)
 		clause, _ := rule.ReportClause()
 		expr = c.convertReportClause(clause).withDefault(defaultReport).apply(expr)
-		if suffix, ok := rule.RhsSuffix(); ok {
-			switch suffix.Name().Text() {
-			case "prec":
-				sym, _ := c.resolveRef(suffix.Symref(), nonterm)
-				if sym < c.resolver.NumTokens {
-					expr = &syntax.Expr{Kind: syntax.Prec, Symbol: sym, Sub: []*syntax.Expr{expr}, Model: c.out, Origin: suffix}
-				} else {
-					c.Errorf(suffix.Symref(), "terminal is expected")
-				}
-			default:
-				c.Errorf(suffix, "unsupported syntax")
+		if prec != nil && topLevel {
+			sym, _ := c.resolveRef(prec.Symref(), nonterm)
+			if sym < c.resolver.NumTokens {
+				expr = &syntax.Expr{Kind: syntax.Prec, Symbol: sym, Sub: []*syntax.Expr{expr}, Model: c.out, Origin: prec}
+			} else {
+				c.Errorf(prec.Symref(), "terminal is expected")
 			}
 		}
 		if pred, ok := rule.Predicate(); ok {
@@ -974,6 +1017,9 @@ func (c *syntaxLoader) load(p ast.ParserSection, header status.SourceNode) {
 
 	for _, nt := range nonterms {
 		clause, _ := nt.def.ReportClause()
+		if alias, ok := nt.def.Alias(); ok {
+			c.Errorf(alias, "nonterminal aliases are not yet supported")
+		}
 		defaultReport := c.convertReportClause(clause)
 		expr := c.convertRules(nt.def.Rule0(), c.out.Nonterms[nt.nonterm], defaultReport, true /*topLevel*/, nt.def)
 		c.out.Nonterms[nt.nonterm].Value = or(c.out.Nonterms[nt.nonterm].Value, expr)

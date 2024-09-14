@@ -66,7 +66,7 @@ invalid_token:
 %flag A;
 
 JSONText {bool b} -> JSONText :
-    JSONValue<+A> { $$ = $1; } ;
+    JSONValue<+A>[val] { $$ = $val; } ;
 
 JSONValue<A> {int a} -> JSONValue :
     kw_null
@@ -87,7 +87,7 @@ JSONObject -> JSONObject/Foo :
     (?= !EmptyObject) '{' JSONMemberList? '}' { @$.begin = @2.begin; } ;
 
 JSONMember {int c} -> JSONMember/Foo :
-    JSONString ':' JSONValue<~A> { $$ = a; }
+    JSONString ':'[b] { LOG(INFO) << @b.begin; } JSONValue<~A> { $$ = a; }
   | error -> SyntaxProblem
 ;
 

@@ -1,9 +1,9 @@
 %{
 %}
 
-%start FooLookahead // no-eoi
 %start Test
 %start Decl1
+%start FooLookahead // no-eoi
 
 %nonassoc AS
 %left PLUS
@@ -38,7 +38,7 @@
 %token F_A
 %token MULTILINE
 %token DQUOTE
-%token APOS
+%token SQUOTE
 %token SHARPATID
 %token ZFOO
 %token BACKTRACKINGTOKEN
@@ -137,7 +137,7 @@ setof_not_EOI_or_DOT_or_RBRACE :
 | F_A
 | MULTILINE
 | DQUOTE
-| APOS
+| SQUOTE
 | SHARPATID
 | ZFOO
 | BACKTRACKINGTOKEN
@@ -201,14 +201,30 @@ Decl2 :
 ;
 
 If :
-  IF LPAREN RPAREN Decl2
-| IF LPAREN RPAREN Decl2 ELSE Decl2
+  IF LPAREN O RPAREN Decl2
+			{ /* 4: $4 */ }
+| IF LPAREN O RPAREN Decl2 ELSE Decl2
 ;
 
 expr :
   expr PLUS primaryExpr
 | customPlus
 | primaryExpr
+;
+
+O :
+  elem_list
+;
+
+elem_list :
+  elem_list elem
+| elem
+;
+
+elem :
+  F_A /*.greedy*/
+| F_A AS
+| AS
 ;
 
 customPlus :

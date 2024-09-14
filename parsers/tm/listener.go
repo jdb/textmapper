@@ -11,13 +11,11 @@ type NodeType int
 type Listener func(t NodeType, offset, endoffset int)
 
 const (
-	NoType         NodeType = iota
-	AnnotationImpl          // name=Identifier Expression?
-	Annotations             // (Annotation)+
-	ArgumentFalse           // name=ParamRef
-	ArgumentTrue            // name=ParamRef
-	ArgumentVal             // name=ParamRef val=ParamValue?
-	Array                   // (Expression)*
+	NoType        NodeType = iota
+	ArgumentFalse          // name=ParamRef
+	ArgumentTrue           // name=ParamRef
+	ArgumentVal            // name=ParamRef val=ParamValue?
+	Array                  // (Expression)*
 	Assoc
 	BooleanLiteral
 	Command
@@ -38,21 +36,23 @@ const (
 	Identifier
 	Import              // alias=Identifier? path=StringLiteral
 	InclusiveStartConds // states=(LexerState)+
-	InlineParameter     // paramType=Identifier name=Identifier ParamValue?
-	Inputref            // reference=Symref NoEoi?
+	Inline
+	InlineParameter // paramType=Identifier name=Identifier ParamValue?
+	Inputref        // reference=Symref NoEoi?
 	IntegerLiteral
-	Lexeme // StartConditions? name=Identifier RawType? ReportClause? Pattern? priority=IntegerLiteral? attrs=LexemeAttrs? Command?
+	Lexeme // StartConditions? name=Identifier LexemeId? RawType? Pattern? priority=IntegerLiteral? attrs=LexemeAttrs? Command?
 	LexemeAttribute
 	LexemeAttrs        // LexemeAttribute
+	LexemeId           // Identifier
 	LexerSection       // (LexerPart)+
 	LexerState         // name=Identifier
 	ListSeparator      // separator=(Symref)+
 	LookaheadPredicate // Not? Symref
-	Name
-	NamedPattern // name=Identifier Pattern
+	NamedPattern       // name=Identifier Pattern
 	NoEoi
 	NonEmpty
-	Nonterm       // Annotations? Extend? name=Identifier params=NontermParams? RawType? ReportClause? (Rule0)+
+	Nonterm       // Extend? Inline? name=Identifier params=NontermParams? alias=NontermAlias? RawType? ReportClause? (Rule0)+
+	NontermAlias  // name=Identifier
 	NontermParams // list=(NontermParam)+
 	Not
 	Option // key=Identifier value=Expression
@@ -68,12 +68,12 @@ const (
 	PredicateNotEq // ParamRef Literal
 	PredicateOr    // left=PredicateExpression right=PredicateExpression
 	RawType
-	ReportAs             // Identifier
-	ReportClause         // action=Identifier flags=(Identifier)* ReportAs?
-	RhsAnnotated         // Annotations inner=RhsPart
-	RhsAsLiteral         // inner=RhsPart Literal
-	RhsAssignment        // id=Identifier inner=RhsPart
-	RhsCast              // inner=RhsPart target=Symref
+	ReportAs      // Identifier
+	ReportClause  // action=Identifier flags=(Identifier)* ReportAs?
+	RhsAlias      // inner=RhsPart name=Identifier
+	RhsAssignment // id=Identifier inner=RhsPart
+	RhsCast       // inner=RhsPart target=Symref
+	RhsEmpty
 	RhsIgnored           // (Rule0)+
 	RhsLookahead         // predicates=(LookaheadPredicate)+
 	RhsNested            // (Rule0)+
@@ -81,12 +81,12 @@ const (
 	RhsPlusAssignment    // id=Identifier inner=RhsPart
 	RhsPlusList          // ruleParts=(RhsPart)+ ListSeparator
 	RhsPlusQuantifier    // inner=RhsPart
+	RhsPrec              // Symref
 	RhsSet               // expr=SetExpression
 	RhsStarList          // ruleParts=(RhsPart)+ ListSeparator
 	RhsStarQuantifier    // inner=RhsPart
-	RhsSuffix            // Name Symref
 	RhsSymbol            // reference=Symref
-	Rule                 // Predicate? (RhsPart)* RhsSuffix? ReportClause?
+	Rule                 // Predicate? (RhsPart)* ReportClause?
 	SetAnd               // left=SetExpression right=SetExpression
 	SetComplement        // inner=SetExpression
 	SetCompound          // inner=SetExpression
@@ -110,8 +110,6 @@ const (
 
 var nodeTypeStr = [...]string{
 	"NONE",
-	"AnnotationImpl",
-	"Annotations",
 	"ArgumentFalse",
 	"ArgumentTrue",
 	"ArgumentVal",
@@ -136,21 +134,23 @@ var nodeTypeStr = [...]string{
 	"Identifier",
 	"Import",
 	"InclusiveStartConds",
+	"Inline",
 	"InlineParameter",
 	"Inputref",
 	"IntegerLiteral",
 	"Lexeme",
 	"LexemeAttribute",
 	"LexemeAttrs",
+	"LexemeId",
 	"LexerSection",
 	"LexerState",
 	"ListSeparator",
 	"LookaheadPredicate",
-	"Name",
 	"NamedPattern",
 	"NoEoi",
 	"NonEmpty",
 	"Nonterm",
+	"NontermAlias",
 	"NontermParams",
 	"Not",
 	"Option",
@@ -168,10 +168,10 @@ var nodeTypeStr = [...]string{
 	"RawType",
 	"ReportAs",
 	"ReportClause",
-	"RhsAnnotated",
-	"RhsAsLiteral",
+	"RhsAlias",
 	"RhsAssignment",
 	"RhsCast",
+	"RhsEmpty",
 	"RhsIgnored",
 	"RhsLookahead",
 	"RhsNested",
@@ -179,10 +179,10 @@ var nodeTypeStr = [...]string{
 	"RhsPlusAssignment",
 	"RhsPlusList",
 	"RhsPlusQuantifier",
+	"RhsPrec",
 	"RhsSet",
 	"RhsStarList",
 	"RhsStarQuantifier",
-	"RhsSuffix",
 	"RhsSymbol",
 	"Rule",
 	"SetAnd",
@@ -212,11 +212,6 @@ func (t NodeType) String() string {
 	return fmt.Sprintf("node(%d)", t)
 }
 
-var Annotation = []NodeType{
-	AnnotationImpl,
-	SyntaxProblem,
-}
-
 var Argument = []NodeType{
 	ArgumentFalse,
 	ArgumentTrue,
@@ -228,7 +223,6 @@ var Expression = []NodeType{
 	BooleanLiteral,
 	IntegerLiteral,
 	StringLiteral,
-	Symref,
 	SyntaxProblem,
 }
 
@@ -285,10 +279,10 @@ var PredicateExpression = []NodeType{
 
 var RhsPart = []NodeType{
 	Command,
-	RhsAnnotated,
-	RhsAsLiteral,
+	RhsAlias,
 	RhsAssignment,
 	RhsCast,
+	RhsEmpty,
 	RhsIgnored,
 	RhsLookahead,
 	RhsNested,
@@ -296,6 +290,7 @@ var RhsPart = []NodeType{
 	RhsPlusAssignment,
 	RhsPlusList,
 	RhsPlusQuantifier,
+	RhsPrec,
 	RhsSet,
 	RhsStarList,
 	RhsStarQuantifier,

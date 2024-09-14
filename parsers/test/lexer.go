@@ -53,7 +53,8 @@ func (l *Lexer) Init(source string) {
 // indicated by Token.EOI.
 //
 // The token text can be retrieved later by calling the Text() method.
-func (l *Lexer) Next() token.Token {
+func (l *Lexer) Next() token.Type {
+
 	var commentOffset, commentDepth int
 restart:
 	l.tokenOffset = l.offset
@@ -171,12 +172,15 @@ recovered:
 	tok := tmToken[rule]
 	var space bool
 	switch rule {
-	case 0:
+	case 0: // no match
 		if backupRule >= 0 {
 			rule = backupRule
 			hash = backupHash
 			l.rewind(backupOffset)
 		} else if l.offset == l.tokenOffset {
+			if l.ch == -1 {
+				tok = token.EOI
+			}
 			l.rewind(l.scanOffset)
 		}
 		if rule != 0 {
@@ -243,6 +247,12 @@ func (l *Lexer) Text() string {
 // Value returns the value associated with the last returned token.
 func (l *Lexer) Value() interface{} {
 	return l.value
+}
+
+// Copy forks the lexer in its current state.
+func (l *Lexer) Copy() Lexer {
+	ret := *l
+	return ret
 }
 
 // rewind can be used in lexer actions to accept a portion of a scanned token, or to include

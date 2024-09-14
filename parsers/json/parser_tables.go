@@ -21,6 +21,10 @@ var tmNonterminals = [...]string{
 	"JSONArray",
 	"JSONElementList",
 	"JSONElementListopt",
+	"EmptyObject$1",
+	"EmptyObject$2",
+	"JSONObject$1",
+	"JSONObject$2",
 }
 
 func symbolName(sym int32) string {
@@ -28,7 +32,7 @@ func symbolName(sym int32) string {
 		return "<no-token>"
 	}
 	if sym < int32(token.NumTokens) {
-		return token.Token(sym).String()
+		return token.Type(sym).String()
 	}
 	if i := int(sym) - int(token.NumTokens); i < len(tmNonterminals) {
 		return tmNonterminals[i]
@@ -36,42 +40,53 @@ func symbolName(sym int32) string {
 	return fmt.Sprintf("nonterminal(%d)", sym)
 }
 
-var tmAction = []int32{
-	20, -3, -1, -21, 17, 18, 10, 11, 12, 13, 0, 15, 14, -1, 16, -1, 28, -41, -1,
-	-1, 19, -47, 27, 22, -1, 25, -1, 29, -65, 21, -1, 8, 9, 1, 2, 3, 4, 24, 6, 5,
-	7, 26, -2, -1, -2,
-}
-
-var tmLalr = []int32{
-	4, -1, 10, -1, 11, -1, 13, -1, 14, -1, 15, -1, 16, -1, 2, 32, -1, -2, 4, -1,
-	10, -1, 11, -1, 13, -1, 14, -1, 15, -1, 16, -1, 2, 32, 5, 31, -1, -2, 7, -1,
-	5, 30, -1, -2, 4, -1, 10, -1, 11, -1, 13, -1, 14, -1, 15, -1, 16, -1, 2, 32,
-	-1, -2, 4, -1, 10, -1, 11, -1, 13, -1, 14, -1, 15, -1, 17, -1, 2, 32, -1, -2,
+var tmDefGoto = []int32{
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 }
 
 var tmGoto = []int32{
-	0, 2, 2, 6, 12, 20, 22, 24, 28, 28, 28, 40, 48, 48, 56, 64, 72, 78, 80, 80,
-	82, 84, 90, 100, 110, 118, 126, 130, 132, 140, 142, 144,
+	63, 36, 16, 5, 20, 31, 35, 37, 51, 46, 66, 67, 60, 52, 47, 54,
 }
 
-var tmFromTo = []int8{
-	43, 44, 2, 15, 13, 19, 15, 20, 19, 23, 26, 29, 1, 3, 3, 3, 21, 3, 28, 3, 18,
-	22, 24, 28, 17, 21, 26, 30, 1, 4, 3, 4, 19, 24, 21, 4, 28, 31, 30, 24, 1, 5,
-	3, 5, 21, 5, 28, 32, 1, 6, 3, 6, 21, 6, 28, 33, 1, 7, 3, 7, 21, 7, 28, 34, 1,
-	8, 3, 8, 21, 8, 28, 35, 1, 9, 3, 9, 21, 9, 28, 36, 1, 43, 28, 37, 1, 10, 3,
-	16, 21, 27, 0, 42, 1, 11, 3, 11, 21, 11, 28, 38, 0, 2, 1, 2, 3, 2, 21, 2, 28,
-	2, 1, 12, 3, 12, 21, 12, 28, 39, 1, 13, 3, 13, 21, 13, 28, 13, 19, 25, 30,
-	41, 19, 26, 1, 14, 3, 14, 21, 14, 28, 40, 3, 17, 3, 18,
+var tmDefAct = []int32{
+	-1, 20, -1, 17, 18, 10, 11, 12, 13, 0, 15, 32, 14, -1, 16, 28, -1, -1, -1,
+	-1, -1, 27, 33, -1, 25, -1, -1, 29, -1, -1, -1, -1, 22, 19, 8, 9, 1, 2, 3, 4,
+	24, 6, 5, 7, 26, 21, -1, -1, -1,
+}
+
+const tmActionBase = -19
+
+var tmAction = []int32{
+	13, -19, -2, -19, -19, -19, -19, -19, -19, -19, -19, -19, -19, -1, -19, -19,
+	45, 14, 2, 44, 13, -19, -19, 4, -19, 50, 41, -19, 55, 28, 49, 58, -19, -19,
+	-19, -19, -19, -19, -19, -19, -19, -19, -19, -19, -19, -19, 62, -19, -19,
+}
+
+const tmTableLen = 76
+
+var tmTable = []int8{
+	36, -21, -4, 31, -24, 10, 47, 10, -5, -6, -31, -7, -8, -9, -10, 36, 9, -4,
+	15, -23, 11, 11, 11, -5, -6, 10, -7, -8, -9, -10, 36, 12, -4, 12, 41, 13, 27,
+	13, -36, -37, 11, -38, -39, -40, -34, -41, 14, 35, 14, 11, 30, 12, -22, 34,
+	-25, 13, 24, -32, -35, -25, 42, -47, -50, 46, 13, 40, 14, 44, 16, 17, 25, 18,
+	31, 26, 28, 43,
+}
+
+var tmCheck = []int8{
+	2, 2, 4, 5, 2, 0, 1, 2, 10, 11, 6, 13, 14, 15, 16, 2, 0, 4, 2, 5, 0, 1, 2,
+	10, 11, 20, 13, 14, 15, 16, 2, 0, 4, 2, 29, 0, 20, 2, 10, 11, 20, 13, 14, 15,
+	3, 17, 0, 3, 2, 29, 5, 20, 7, 3, 10, 20, 19, 7, 3, 10, 29, 3, 0, 0, 29, 29,
+	20, 30, 2, 2, 19, 11, 25, 19, 22, 29,
 }
 
 var tmRuleLen = []int8{
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 0, 4, 3, 0, 3, 1,
-	3, 3, 1, 3, 1, 0, 0,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 5, 0, 5, 4, 0, 3, 1,
+	3, 3, 1, 3, 1, 0, 0, 0, 0, 0, 0,
 }
 
 var tmRuleSymbol = []int32{
 	19, 20, 20, 20, 20, 20, 20, 20, 20, 20, 21, 21, 21, 21, 21, 21, 21, 21, 21,
-	22, 23, 24, 24, 25, 26, 27, 27, 28, 29, 29, 30, 30, 25,
+	22, 23, 24, 24, 25, 26, 27, 27, 28, 29, 29, 30, 30, 31, 32, 33, 34, 25,
 }
 
 var tmRuleType = [...]NodeType{
@@ -94,10 +109,10 @@ var tmRuleType = [...]NodeType{
 	JSONValue,   // JSONValue_A : JSONArray
 	JSONValue,   // JSONValue_A : JSONString
 	JSONValue,   // JSONValue_A : JSONNumber
-	EmptyObject, // EmptyObject : lookahead_EmptyObject '{' '}'
+	EmptyObject, // EmptyObject : lookahead_EmptyObject EmptyObject$1 '{' EmptyObject$2 '}'
 	0,           // lookahead_EmptyObject :
-	JSONObject,  // JSONObject : lookahead_notEmptyObject '{' JSONMemberList '}'
-	JSONObject,  // JSONObject : lookahead_notEmptyObject '{' '}'
+	JSONObject,  // JSONObject : lookahead_notEmptyObject '{' JSONMemberList JSONObject$1 '}'
+	JSONObject,  // JSONObject : lookahead_notEmptyObject '{' JSONObject$2 '}'
 	0,           // lookahead_notEmptyObject :
 	JSONMember,  // JSONMember : JSONString ':' JSONValue
 	0,           // JSONMemberList : JSONMember
@@ -107,12 +122,16 @@ var tmRuleType = [...]NodeType{
 	0,           // JSONElementList : JSONElementList ',' JSONValue_A
 	0,           // JSONElementListopt : JSONElementList
 	0,           // JSONElementListopt :
+	0,           // EmptyObject$1 :
+	0,           // EmptyObject$2 :
+	0,           // JSONObject$1 :
+	0,           // JSONObject$2 :
 }
 
 // set(first JSONValue_A) = LBRACE, LBRACK, JSONSTRING, JSONNUMBER, NULL, TRUE, FALSE, CHAR_A
-var Literals = []int32{
+var Literals = []token.Type{
 	2, 4, 10, 11, 13, 14, 15, 16,
 }
 
-// set(follow error) =
-var afterErr = []int32{}
+// set(follow ERROR) =
+var afterErr = []token.Type{}

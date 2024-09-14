@@ -56,7 +56,7 @@ const (
 )
 
 func (p *Parser) Parse(lexer *Lexer) error {
-	return p.parse(1, 44, lexer)
+	return p.parse(0, 48, lexer)
 }
 
 func (p *Parser) parse(start, end int8, lexer *Lexer) error {
@@ -69,12 +69,19 @@ func (p *Parser) parse(start, end int8, lexer *Lexer) error {
 
 	for state != end {
 		action := tmAction[state]
-		if action < -2 {
+		if action > tmActionBase {
 			// Lookahead is needed.
 			if p.next.symbol == noToken {
 				p.fetchNext(lexer, stack)
 			}
-			action = lalr(action, p.next.symbol)
+			pos := action + p.next.symbol
+			if pos >= 0 && pos < tmTableLen && int32(tmCheck[pos]) == p.next.symbol {
+				action = int32(tmTable[pos])
+			} else {
+				action = tmDefAct[state]
+			}
+		} else {
+			action = tmDefAct[state]
 		}
 
 		if action >= 0 {
@@ -85,7 +92,6 @@ func (p *Parser) parse(start, end int8, lexer *Lexer) error {
 			var entry stackEntry
 			entry.sym.symbol = tmRuleSymbol[rule]
 			rhs := stack[len(stack)-ln:]
-			stack = stack[:len(stack)-ln]
 			if ln == 0 {
 				if p.next.symbol == noToken {
 					p.fetchNext(lexer, stack)
@@ -95,9 +101,10 @@ func (p *Parser) parse(start, end int8, lexer *Lexer) error {
 				entry.sym.offset = rhs[0].sym.offset
 				entry.sym.endoffset = rhs[ln-1].sym.endoffset
 			}
-			if err := p.applyRule(rule, &entry, rhs, lexer); err != nil {
+			if err := p.applyRule(rule, &entry, stack, lexer); err != nil {
 				return err
 			}
+			stack = stack[:len(stack)-len(rhs)]
 			if debugSyntax {
 				fmt.Printf("reduced to: %v\n", symbolName(entry.sym.symbol))
 			}
@@ -105,38 +112,28 @@ func (p *Parser) parse(start, end int8, lexer *Lexer) error {
 			entry.state = state
 			stack = append(stack, entry)
 
-		} else if action == -1 {
+		} else if action < -1 {
 			// Shift.
-			if p.next.symbol == noToken {
-				p.fetchNext(lexer, stack)
+			state = int8(-2 - action)
+			stack = append(stack, stackEntry{
+				sym:   p.next,
+				state: state,
+				value: lexer.Value(),
+			})
+			if debugSyntax {
+				fmt.Printf("shift: %v (%s)\n", symbolName(p.next.symbol), lexer.Text())
 			}
-			state = gotoState(state, p.next.symbol)
-			if state >= 0 {
-				stack = append(stack, stackEntry{
-					sym:   p.next,
-					state: state,
-					value: lexer.Value(),
-				})
-				if debugSyntax {
-					fmt.Printf("shift: %v (%s)\n", symbolName(p.next.symbol), lexer.Text())
+			p.flush(p.next)
+			if p.next.symbol != eoiToken {
+				switch token.Type(p.next.symbol) {
+				case token.JSONSTRING:
+					p.listener(JSONString, p.next.offset, p.next.endoffset)
 				}
-				if len(p.pending) > 0 {
-					for _, tok := range p.pending {
-						p.reportIgnoredToken(tok)
-					}
-					p.pending = p.pending[:0]
-				}
-				if p.next.symbol != eoiToken {
-					switch token.Token(p.next.symbol) {
-					case token.JSONSTRING:
-						p.listener(JsonString, p.next.offset, p.next.endoffset)
-					}
-					p.next.symbol = noToken
-				}
+				p.next.symbol = noToken
 			}
 		}
 
-		if action == -2 || state == -1 {
+		if action == -1 || state == -1 {
 			break
 		}
 	}
@@ -156,38 +153,29 @@ func (p *Parser) parse(start, end int8, lexer *Lexer) error {
 	return nil
 }
 
-func lalr(action, next int32) int32 {
-	a := -action - 3
-	for ; tmLalr[a] >= 0; a += 2 {
-		if tmLalr[a] == next {
-			break
-		}
-	}
-	return tmLalr[a+1]
-}
-
 func gotoState(state int8, symbol int32) int8 {
-	min := tmGoto[symbol]
-	max := tmGoto[symbol+1]
+	const numTokens = 19
+	if symbol >= numTokens {
+		pos := tmGoto[symbol-numTokens] + int32(state)
+		if pos >= 0 && pos < tmTableLen && tmCheck[pos] == int8(state) {
+			return int8(tmTable[pos])
+		}
+		return int8(tmDefGoto[symbol-numTokens])
+	}
 
-	if max-min < 32 {
-		for i := min; i < max; i += 2 {
-			if tmFromTo[i] == state {
-				return tmFromTo[i+1]
-			}
-		}
+	// Shifting a token.
+	action := tmAction[state]
+	if action == tmActionBase {
+		return -1
+	}
+	pos := action + symbol
+	if pos >= 0 && pos < tmTableLen && tmCheck[pos] == int8(symbol) {
+		action = int32(tmTable[pos])
 	} else {
-		for min < max {
-			e := (min + max) >> 1 &^ int32(1)
-			i := tmFromTo[e]
-			if i == state {
-				return tmFromTo[e+1]
-			} else if i < state {
-				min = e + 2
-			} else {
-				max = e
-			}
-		}
+		action = tmDefAct[state]
+	}
+	if action < -1 {
+		return int8(-2 - action)
 	}
 	return -1
 }
@@ -206,38 +194,45 @@ restart:
 	p.next.offset, p.next.endoffset = lexer.Pos()
 }
 
-func lookaheadNext(lexer *Lexer) int32 {
+func lookaheadNext(lexer *Lexer) symbol {
 restart:
 	tok := lexer.Next()
 	switch tok {
 	case token.MULTILINECOMMENT, token.INVALID_TOKEN:
 		goto restart
 	}
-	return int32(tok)
+	s, e := lexer.Pos()
+	return symbol{int32(tok), s, e}
 }
 
-func AtEmptyObject(lexer *Lexer, next int32) bool {
+func AtEmptyObject(lexer *Lexer, next symbol) bool {
 	if debugSyntax {
-		fmt.Printf("lookahead EmptyObject, next: %v\n", symbolName(next))
+		fmt.Printf("lookahead EmptyObject, next: %v\n", symbolName(next.symbol))
 	}
-	return lookahead(lexer, next, 0, 42)
+	return lookahead(lexer, next, 1, 47)
 }
 
-func lookahead(l *Lexer, next int32, start, end int8) bool {
-	var lexer Lexer = *l
-
+func lookahead(l *Lexer, next symbol, start, end int8) bool {
+	lexer := l.Copy()
 	var allocated [64]stackEntry
 	state := start
 	stack := append(allocated[:0], stackEntry{state: state})
 
 	for state != end {
 		action := tmAction[state]
-		if action < -2 {
+		if action > tmActionBase {
 			// Lookahead is needed.
-			if next == noToken {
+			if next.symbol == noToken {
 				next = lookaheadNext(&lexer)
 			}
-			action = lalr(action, next)
+			pos := action + next.symbol
+			if pos >= 0 && pos < tmTableLen && int32(tmCheck[pos]) == next.symbol {
+				action = int32(tmTable[pos])
+			} else {
+				action = tmDefAct[state]
+			}
+		} else {
+			action = tmDefAct[state]
 		}
 
 		if action >= 0 {
@@ -255,25 +250,22 @@ func lookahead(l *Lexer, next int32, start, end int8) bool {
 			entry.state = state
 			stack = append(stack, entry)
 
-		} else if action == -1 {
+		} else if action < -1 {
 			// Shift.
-			if next == noToken {
-				next = lookaheadNext(&lexer)
-			}
-			state = gotoState(state, next)
+			state = int8(-2 - action)
 			stack = append(stack, stackEntry{
-				sym:   symbol{symbol: next},
+				sym:   next,
 				state: state,
 			})
 			if debugSyntax {
-				fmt.Printf("lookahead shift: %v (%s)\n", symbolName(next), lexer.Text())
+				fmt.Printf("lookahead shift: %v (%s)\n", symbolName(next.symbol), lexer.Text())
 			}
-			if state != -1 && next != eoiToken {
-				next = noToken
+			if state != -1 && next.symbol != eoiToken {
+				next.symbol = noToken
 			}
 		}
 
-		if action == -2 || state == -1 {
+		if action == -1 || state == -1 {
 			break
 		}
 	}
@@ -284,10 +276,39 @@ func lookahead(l *Lexer, next int32, start, end int8) bool {
 	return state == end
 }
 
-func (p *Parser) applyRule(rule int32, lhs *stackEntry, rhs []stackEntry, lexer *Lexer) (err error) {
+func (p *Parser) applyRule(rule int32, lhs *stackEntry, stack []stackEntry, lexer *Lexer) (err error) {
 	switch rule {
-	case 32:
-		if AtEmptyObject(lexer, p.next.symbol) {
+	case 19: // EmptyObject : lookahead_EmptyObject EmptyObject$1 '{' EmptyObject$2 '}'
+		nn2, _ := stack[len(stack)-3].value.(int64)
+		{
+			val := nn2
+			_ = val
+		}
+	case 21: // JSONObject : lookahead_notEmptyObject '{' JSONMemberList JSONObject$1 '}'
+		{ /*starts stack[len(stack)-4].sym.offset*/
+		}
+	case 22: // JSONObject : lookahead_notEmptyObject '{' JSONObject$2 '}'
+		{ /*starts stack[len(stack)-3].sym.offset*/
+		}
+	case 32: // EmptyObject$1 :
+		{ /* empty mid-rule */
+		}
+	case 33: // EmptyObject$2 :
+		nn2, _ := stack[len(stack)-1].value.(int64)
+		{
+			val := nn2
+			if val != int64(42) {
+				panic(fmt.Sprintf("got %v %T", val, val))
+			}
+		}
+	case 34: // JSONObject$1 :
+		{ /*mid-rule stack[len(stack)-2].sym.offset*/
+		}
+	case 35: // JSONObject$2 :
+		{ /*mid-rule stack[len(stack)-1].sym.offset*/
+		}
+	case 36:
+		if AtEmptyObject(lexer, p.next) {
 			lhs.sym.symbol = 23 /* lookahead_EmptyObject */
 		} else {
 			lhs.sym.symbol = 25 /* lookahead_notEmptyObject */
@@ -302,7 +323,7 @@ func (p *Parser) applyRule(rule int32, lhs *stackEntry, rhs []stackEntry, lexer 
 
 func (p *Parser) reportIgnoredToken(tok symbol) {
 	var t NodeType
-	switch token.Token(tok.symbol) {
+	switch token.Type(tok.symbol) {
 	case token.MULTILINECOMMENT:
 		t = MultiLineComment
 	case token.INVALID_TOKEN:
@@ -311,7 +332,23 @@ func (p *Parser) reportIgnoredToken(tok symbol) {
 		return
 	}
 	if debugSyntax {
-		fmt.Printf("ignored: %v as %v\n", token.Token(tok.symbol), t)
+		fmt.Printf("ignored: %v as %v\n", token.Type(tok.symbol), t)
 	}
 	p.listener(t, tok.offset, tok.endoffset)
+}
+
+// flush reports all pending tokens up to a given symbol.
+func (p *Parser) flush(sym symbol) {
+	if len(p.pending) > 0 && p.listener != nil {
+		for i, tok := range p.pending {
+			if tok.endoffset > sym.endoffset {
+				// Note: this copying should not happen during normal operation, only
+				// during error recovery.
+				p.pending = append(p.pending[:0], p.pending[i:]...)
+				return
+			}
+			p.reportIgnoredToken(tok)
+		}
+		p.pending = p.pending[:0]
+	}
 }

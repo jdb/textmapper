@@ -282,10 +282,14 @@ func (a *allocator) place(pairs []pair) (base int) {
 	// Attempt to dedupe lines.
 	hash := hash(pairs)
 	if base, ok := a.prev[key{hash, len(pairs)}]; ok {
-		ok := true
-		for _, p := range pairs {
-			if a.table[base+p.pos] != p.val || a.check[base+p.pos] != p.pos+1 {
-				ok = false
+		// Note: base can cause out-of-bound problems in case of hash collisions.
+		ok := min+base >= 0 && max+base < a.size
+		if ok {
+			for _, p := range pairs {
+				if a.table[base+p.pos] != p.val || a.check[base+p.pos] != p.pos+1 {
+					ok = false
+					break
+				}
 			}
 		}
 		if ok {
@@ -314,12 +318,12 @@ func (a *allocator) place(pairs []pair) (base int) {
 
 	// Try to find a free block of the required shape.
 outer:
-	for i := 0; i < a.size; i++ {
+	for i := a.taken.NextZero(0); i < a.size; i = a.taken.NextZero(i + 1) {
 		base = i - min
-		if a.usedBase.Get(a.delta + base) {
+		if a.usedBase.Get(a.delta+base) || a.taken.Get(base+max) {
 			continue
 		}
-		for _, p := range pairs {
+		for _, p := range pairs[1:] {
 			if a.taken.Get(base + p.pos) {
 				continue outer
 			}

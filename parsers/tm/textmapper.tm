@@ -1,19 +1,5 @@
 #  syntax: lalr1 generator source grammar
 
-#  Copyright 2002-2020 Evgeny Gryaznov
-#
-#  Licensed under the Apache License, Version 2.0 (the "License");
-#  you may not use this file except in compliance with the License.
-#  You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-#  Unless required by applicable law or agreed to in writing, software
-#  distributed under the License is distributed on an "AS IS" BASIS,
-#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#  See the License for the specific language governing permissions and
-#  limitations under the License.
-
 language tm(go);
 
 lang = "tm"
@@ -24,8 +10,10 @@ cancellable = true
 eventAST = true
 writeBison = true
 tokenColumn = true
+optimizeTables = true
 fileNode = "File"
-reportTokens = [invalid_token, multilineComment, comment, templates]
+tokenStream = true
+fixWhitespace = true
 
 :: lexer
 
@@ -75,12 +63,17 @@ multilineComment: /\/\*{commentChars}\*\//   (space)
 '&':    /&/
 '&&':   /&&/
 '$':    /$/
-'@':    /@/
+'@' (at):    /@/
+<initial, afterID, afterGT>
+'/':    /\//
+<afterGT>
+'{':  /\{/
 
 error:
 invalid_token:
 
-ID: /[a-zA-Z_]([a-zA-Z_\-0-9]*[a-zA-Z_0-9])?|'([^\n\\']|\\.)*'/  (class)
+ID: /[a-zA-Z_]([a-zA-Z_\-0-9]*[a-zA-Z_0-9])?/  (class)
+quoted_id:   /'([^\n\\']|\\.)*'/
 
 'as':        /as/
 'false':     /false/
@@ -127,25 +120,26 @@ ID: /[a-zA-Z_]([a-zA-Z_\-0-9]*[a-zA-Z_0-9])?|'([^\n\\']|\\.)*'/  (class)
 <initial, afterID, afterColonOrEq>
 code:   /\{/    /* We skip the rest in a post-processing action. */
 
-<afterGT>
-'{':  /\{/
-
 <afterColonOrEq>
 regexp: /\/{reFirst}{reChar}*\//
-
-<initial, afterID, afterGT>
-'/':    /\//
 
 :: parser
 
 %input file, nonterm;
 
+%inject invalid_token -> InvalidToken;
+%inject multilineComment -> MultilineComment;
+%inject comment -> Comment;
+%inject templates -> Templates;
+
 %flag OrSyntaxError = false;
 
 # Basic nonterminals.
 
-identifier<flag Keywords = false> -> Identifier:
+identifier<flag Keywords = false, flag Str = false> -> Identifier:
     ID
+  | [Str] quoted_id
+  | [Str] scon
 
 # Soft keywords
   | 'brackets' | 'inline'    | 'prec'     | 'shift'     | 'input'
@@ -206,8 +200,8 @@ option -> Option:
     key=identifier '=' value=expression ;
 
 symref<flag Args> -> Symref:
-    [Args]  name=identifier args=args?
-  | [!Args] name=identifier
+    [Args]  name=identifier<+Str> args=args?
+  | [!Args] name=identifier<+Str>
 ;
 
 rawType -> RawType:
@@ -240,8 +234,11 @@ start_conditions -> StartConditions:
 ;
 
 lexeme -> Lexeme:
-    start_conditions? name=identifier rawTypeopt reportClause? ':'
+    start_conditions? name=identifier<+Str> lexeme_id? rawTypeopt ':'
         (pattern priority=integer_literal? attrs=lexeme_attrs? command? | attrs=lexeme_attrs)? ;
+
+lexeme_id -> LexemeId:
+    '(' identifier<+Keywords> ')' ;
 
 lexeme_attrs -> LexemeAttrs:
     '(' lexeme_attribute ')' ;
@@ -249,7 +246,6 @@ lexeme_attrs -> LexemeAttrs:
 lexeme_attribute -> LexemeAttribute:
     'class'
   | 'space'
-  | 'layout'
 ;
 
 lexer_directive -> LexerPart:
@@ -279,9 +275,13 @@ grammar_part<OrSyntaxError> -> GrammarPart:
 ;
 
 nonterm -> Nonterm:
-    annotations? name=identifier params=nonterm_params? rawType? reportClause? ':' rules ';' 
-  | ('extend' -> Extend) name=identifier reportClause? ':' rules ';'
+    name=identifier params=nonterm_params? alias=nonterm_alias? rawType? reportClause? ':' rules ';'
+  | ('extend' -> Extend) name=identifier alias=nonterm_alias? reportClause? ':' rules ';'
+  | ('inline' -> Inline) name=identifier params=nonterm_params? alias=nonterm_alias? reportClause? ':' rules ';'
 ;
+
+nonterm_alias -> NontermAlias:
+    '[' name=identifier<+Keywords> ']' ;
 
 assoc -> Assoc:
     'left'
@@ -290,10 +290,7 @@ assoc -> Assoc:
 ;
 
 param_modifier -> ParamModifier:
-    'explicit'
-  | 'global'
-  | 'lookahead'
-;
+    'lookahead' ;
 
 template_param -> GrammarPart:
     '%' modifier=param_modifier? param_type name=identifier ('=' param_value)? ';' -> TemplateParam
@@ -326,17 +323,12 @@ rules:
 %interface Rule0;
 
 rule0 -> Rule0:
-    predicate? rhsParts? rhsSuffix? reportClause?       -> Rule
+    predicate? rhsParts? reportClause?       -> Rule
   | syntax_problem
 ;
 
 predicate -> Predicate:
     '[' predicate_expression ']' ;
-
-rhsSuffix -> RhsSuffix:
-    '%' ('prec' -> Name) symref<~Args>
-  | '%' ('shift' -> Name) symref<~Args>
-;
 
 reportClause -> ReportClause:
     '->' action=identifier ('/' flags=(identifier separator ',')+)? reportAs? ;
@@ -352,10 +344,12 @@ rhsParts:
 %interface RhsPart;
 
 rhsPart<OrSyntaxError> -> RhsPart:
-    rhsAnnotated
+    rhsAssignment
   | command
   | rhsStateMarker
   | rhsLookahead
+  | '%' 'empty'                 -> RhsEmpty
+  | '%' 'prec' symref<~Args>    -> RhsPrec
   | [OrSyntaxError] syntax_problem
 ;
 
@@ -368,15 +362,10 @@ lookahead_predicate -> LookaheadPredicate:
 rhsStateMarker -> StateMarker:
     '.' name=identifier ;
 
-rhsAnnotated -> RhsPart:
-    rhsAssignment
-  | annotations inner=rhsAssignment  -> RhsAnnotated
-;
-
 rhsAssignment -> RhsPart:
     rhsOptional
-  | id=identifier '=' inner=rhsOptional      -> RhsAssignment
-  | id=identifier '+=' inner=rhsOptional     -> RhsPlusAssignment
+  | id=identifier<+Str> '=' inner=rhsOptional      -> RhsAssignment
+  | id=identifier<+Str> '+=' inner=rhsOptional     -> RhsPlusAssignment
 ;
 
 rhsOptional -> RhsPart:
@@ -385,22 +374,26 @@ rhsOptional -> RhsPart:
 ;
 
 rhsCast -> RhsPart:
+    rhsAlias
+  | inner=rhsAlias 'as' target=symref<+Args> -> RhsCast
+;
+
+rhsAlias -> RhsPart:
     rhsPrimary
-  | inner=rhsPrimary 'as' target=symref<+Args> -> RhsCast
-  | inner=rhsPrimary 'as' literal              -> RhsAsLiteral   /* TODO remove */
+  | inner=rhsPrimary '[' name=identifier<+Keywords> ']'       -> RhsAlias
 ;
 
 listSeparator -> ListSeparator:
     'separator' separator_=references ;
 
 rhsPrimary -> RhsPart:
-    reference=symref<+Args>                           -> RhsSymbol
-  | '(' .recoveryScope rules ')'                                     -> RhsNested
-  | '(' .recoveryScope ruleParts=rhsParts listSeparator ')' '+'      -> RhsPlusList
-  | '(' .recoveryScope ruleParts=rhsParts listSeparator ')' '*'      -> RhsStarList
-  | inner=rhsPrimary '+'                              -> RhsPlusQuantifier
-  | inner=rhsPrimary '*'                              -> RhsStarQuantifier
-  | '$' '(' .recoveryScope rules ')'                                 -> RhsIgnored
+    reference=symref<+Args>                                      -> RhsSymbol
+  | '(' .recoveryScope rules ')'                                 -> RhsNested
+  | '(' .recoveryScope ruleParts=rhsParts listSeparator ')' '+'  -> RhsPlusList
+  | '(' .recoveryScope ruleParts=rhsParts listSeparator ')' '*'  -> RhsStarList
+  | inner=rhsPrimary '+'                                         -> RhsPlusQuantifier
+  | inner=rhsPrimary '*'                                         -> RhsStarQuantifier
+  | '$' '(' .recoveryScope rules ')'                             -> RhsIgnored
   | rhsSet
 ;
 
@@ -422,16 +415,6 @@ setExpression -> SetExpression:
     setPrimary
   | left=setExpression '|' right=setExpression   -> SetOr
   | left=setExpression '&' right=setExpression   -> SetAnd
-;
-
-annotations -> Annotations:
-    annotation+ ;
-
-%interface Annotation;
-
-annotation -> Annotation:
-    '@' name=identifier ('=' expression)?    -> AnnotationImpl
-  | '@' syntax_problem
 ;
 
 /* Nonterminal parameters */
@@ -494,24 +477,23 @@ predicate_expression -> PredicateExpression:
 
 expression -> Expression:
     literal
-  | symref<+Args>
   | '[' (expression separator ',')+? ','? ']'                         -> Array
   | syntax_problem
 ;
 
 %%
 
-${template go_lexer.stateVars-}
+{{define "stateVars"}}
 	inStatesSelector bool
-	prev             token.Token
-${end}
+	prev             token.Type
+{{end}}
 
-${template go_lexer.initStateVars-}
+{{define "initStateVars"}}
 	l.inStatesSelector = false
 	l.prev = token.UNAVAILABLE
-${end}
+{{end}}
 
-${template go_lexer.onAfterNext-}
+{{define "onAfterNext"}}
 	switch tok {
 	case token.LT:
 		l.inStatesSelector = l.State == StateInitial || l.State == StateAfterColonOrEq
@@ -548,8 +530,4 @@ ${template go_lexer.onAfterNext-}
 		l.State = StateInitial
 	}
 	l.prev = tok
-${end}
-
-${template go_types.wrappedTypeExt-}
-	SourceRange() "github.com/inspirer/textmapper/status".SourceRange
-${end}
+{{end}}

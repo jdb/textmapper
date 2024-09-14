@@ -104,7 +104,7 @@ func TestCompile(t *testing.T) {
 			}
 			index = append(index, offset)
 		}
-		ins, _ := c.compile()
+		ins, _ := c.compile(false /*scanBytes*/)
 
 		var got []string
 		var b bytes.Buffer
@@ -165,13 +165,21 @@ func TestErrors(t *testing.T) {
 }
 
 func pattern(name, text string) *Pattern {
-	return &Pattern{Name: name, Text: text, RE: MustParse(text)}
+	var scanBytes bool
+	text, scanBytes = strings.CutPrefix(text, "{#bytes}")
+	return &Pattern{Name: name, Text: text, RE: MustParse(text, CharsetOptions{ScanBytes: scanBytes})}
 }
 
-func rule(name, re string, action int) *Rule {
+func rule(name, re string, action int, prec ...int) *Rule {
+	var precVal int
+	if len(prec) == 1 {
+		precVal = prec[0]
+	}
 	return &Rule{
-		Pattern:  pattern(name, re),
-		Action:   action,
-		Resolver: testPatterns,
+		Pattern:         pattern(name, re),
+		Action:          action,
+		Resolver:        testPatterns,
+		StartConditions: []int{0},
+		Precedence:      precVal,
 	}
 }

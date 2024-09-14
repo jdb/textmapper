@@ -8,12 +8,12 @@ import (
 	"github.com/inspirer/textmapper/parsers/simple/token"
 )
 
+const atBState = 1
+
 var afterListStates = map[int]bool{
 	6: true,
 	7: true,
 }
-
-const atBState = 1
 
 var tmNonterminals = [...]string{
 	"Bar_list",
@@ -30,7 +30,7 @@ func symbolName(sym int32) string {
 		return "<no-token>"
 	}
 	if sym < int32(token.NumTokens) {
-		return token.Token(sym).String()
+		return token.Type(sym).String()
 	}
 	if i := int(sym) - int(token.NumTokens); i < len(tmNonterminals) {
 		return tmNonterminals[i]
@@ -80,7 +80,7 @@ var tmRuleType = [...]NodeType{
 	0, // Xyz : 'c'
 }
 
-// set(follow 'simple') = CHAR_B, CHAR_C
-var afterSimple = []int32{
+// set(follow SIMPLE) = CHAR_B, CHAR_C
+var afterSimple = []token.Type{
 	5, 6,
 }

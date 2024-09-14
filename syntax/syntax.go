@@ -116,6 +116,9 @@ type Nonterm struct {
 	Params []int
 	Value  *Expr // non-nil
 
+	// TODO: support nonterminal inlining
+	Inline bool // true for to-be-inlined nonterminals
+
 	// When non-empty, this is a Lookahead nonterminal (implies Value is Empty). When two or more
 	// lookahead nonterminals can be reduced in the same state, their lookahead predicates are
 	// evaluated at runtime to determine which one should actually be reduced.
@@ -378,6 +381,7 @@ func (k ExprKind) GoString() string {
 type CmdArgs struct {
 	Names  map[string]int
 	MaxPos int // exclusive, 1-based
+	Delta  int // Added to the final position to adjust for extracted middle rule actions.
 }
 
 // TokenSet is a grammar expression that resolves to a set of tokens.

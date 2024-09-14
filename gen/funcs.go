@@ -21,7 +21,9 @@ var funcMap = template.FuncMap{
 	"bits":                bits,
 	"bits_per_element":    bitsPerElement,
 	"int_array":           intArray,
+	"int_array_columns":   intArrayColumns,
 	"str_literal":         strconv.Quote,
+	"stringify":           stringify,
 	"title":               strings.Title,
 	"lower":               strings.ToLower,
 	"first_lower":         firstLower,
@@ -34,6 +36,7 @@ var funcMap = template.FuncMap{
 	"lexer_action":        lexerAction,
 	"ref":                 ref,
 	"minus1":              minus1,
+	"sub":                 sub,
 	"go_parser_action":    goParserAction,
 	"cc_parser_action":    ccParserAction,
 	"bison_parser_action": bisonParserAction,
@@ -44,6 +47,13 @@ var funcMap = template.FuncMap{
 	"last_id":             lastID,
 	"escape_reserved":     escapeReserved,
 	"unwrap_with_default": unwrapWithDefault,
+}
+
+func stringify(s string) string {
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		return strconv.Quote(s[1 : len(s)-1])
+	}
+	return strconv.Quote(s)
 }
 
 func sum(a, b int) int {
@@ -105,6 +115,32 @@ func intArray(arr []int, padding string, maxWidth int) string {
 			col = len(padding) + len(str)
 		}
 		b.Write(str)
+	}
+	if len(arr) > 0 {
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func intArrayColumns(arr []int, padding string, cols int) string {
+	var buf [21]byte
+	var b strings.Builder
+	b.Grow(len(arr) * 9)
+	col := cols
+	for _, val := range arr {
+		str := strconv.AppendInt(buf[:0], int64(val), 10)
+		str = append(str, ',')
+		if col >= cols {
+			b.WriteString("\n")
+			b.WriteString(padding)
+			col = 0
+		}
+		b.WriteByte(' ')
+		if len(str) < 6 {
+			b.WriteString("      "[len(str):])
+		}
+		b.Write(str)
+		col++
 	}
 	if len(arr) > 0 {
 		b.WriteByte('\n')
@@ -191,6 +227,10 @@ func minus1(a int) int {
 	return a - 1
 }
 
+func sub(a, b int) int {
+	return a - b
+}
+
 func goParserAction(s string, args *grammar.ActionVars, origin status.SourceNode) (string, error) {
 	var decls strings.Builder
 	var sb strings.Builder
@@ -254,7 +294,7 @@ func goParserAction(s string, args *grammar.ActionVars, origin status.SourceNode
 		if index == -2 {
 			v = "lhs"
 		} else {
-			v = fmt.Sprintf("rhs[%v]", index)
+			v = fmt.Sprintf("stack[len(stack)-%v]", len(args.Types)-index)
 		}
 		switch {
 		case prop == "sym":
@@ -351,7 +391,7 @@ func ccParserAction(s string, args *grammar.ActionVars, origin status.SourceNode
 				}
 			}
 
-			target = fmt.Sprintf("rhs[%v]", index)
+			target = fmt.Sprintf("rhs[%v]", index+args.Delta)
 			if ch == '@' {
 				prop = "sym.location"
 			} else {

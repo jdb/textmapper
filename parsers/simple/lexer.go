@@ -47,7 +47,7 @@ func (l *Lexer) Init(source string) {
 // indicated by Token.EOI.
 //
 // The token text can be retrieved later by calling the Text() method.
-func (l *Lexer) Next() token.Token {
+func (l *Lexer) Next() token.Type {
 restart:
 	l.tokenLine = l.line
 	l.tokenOffset = l.offset
@@ -86,10 +86,13 @@ restart:
 		}
 	}
 
-	tok := token.Token(tmFirstRule - state)
+	tok := token.Type(tmFirstRule - state)
 	switch tok {
 	case token.INVALID_TOKEN:
 		if l.offset == l.tokenOffset {
+			if l.ch == -1 {
+				tok = token.EOI
+			}
 			l.rewind(l.scanOffset)
 		}
 	case 2:
@@ -118,6 +121,12 @@ func (l *Lexer) Text() string {
 // Value returns the value associated with the last returned token.
 func (l *Lexer) Value() interface{} {
 	return l.value
+}
+
+// Copy forks the lexer in its current state.
+func (l *Lexer) Copy() Lexer {
+	ret := *l
+	return ret
 }
 
 // rewind can be used in lexer actions to accept a portion of a scanned token, or to include

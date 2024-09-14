@@ -14,7 +14,7 @@ import (
 
 var debugCmd = &command{
 	Name:  "debug",
-	Title: "debug grammars",
+	Title: "print out automaton statistics and parsing tables in a human-readable format",
 	Usage: " [flags] [grammars...]",
 	Help: `By default, Textmapper prints out debug info for all grammars in the current directory.
 
@@ -22,7 +22,8 @@ Flags:`,
 }
 
 var (
-	stats = debugCmd.Flags.Bool("stats", false, "output generated table statistics")
+	stats  = debugCmd.Flags.Bool("stats", false, "output generated table statistics")
+	tables = debugCmd.Flags.Bool("tables", false, "dump generated tables in a human-readable format")
 )
 
 func init() {
@@ -59,15 +60,25 @@ func debugFile(ctx context.Context, path string) error {
 	}
 
 	start := time.Now()
-	g, err := compiler.Compile(ctx, path, string(content), compiler.Params{})
-	if err != nil {
+	g, err := compiler.Compile(ctx, path, string(content), compiler.Params{DebugTables: *tables})
+	if g == nil {
 		return err
 	}
+	if err != nil {
+		status.Print(os.Stderr, err)
+		fmt.Fprintln(os.Stderr)
+	}
 
-	fmt.Printf("Compiled %v in %v\n", path, time.Since(start))
+	if *stats {
+		fmt.Printf("Compiled %v in %v\n", path, time.Since(start))
+	}
+
+	if *stats && g.Lexer != nil {
+		fmt.Println()
+		fmt.Print(g.Lexer.TableStats())
+	}
 
 	if *stats && g.Parser != nil && g.Parser.Tables != nil {
-		fmt.Println()
 		fmt.Print(g.Parser.TableStats())
 
 		start = time.Now()
@@ -75,6 +86,12 @@ func debugFile(ctx context.Context, path string) error {
 		fmt.Printf("Optimized tables in %v\n", time.Since(start))
 
 		fmt.Print(newEnc.TableStats())
+	}
+
+	if *tables && g.Parser != nil && g.Parser.Tables != nil {
+		for _, info := range g.Parser.Tables.DebugInfo {
+			fmt.Println(info)
+		}
 	}
 
 	return nil

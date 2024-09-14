@@ -13,16 +13,15 @@ fixWhitespace = true
 cancellable = true
 cancellableFetch = true
 recursiveLookaheads = true
-reportTokens = [SingleLineComment, Identifier, invalid_token, MultiLineComment]
 extraTypes = ["Int7", "Int9 -> Expr"]
 
 :: lexer
 
 WhiteSpace: /[ \t\r\n\x00]/ (space)
 
-SingleLineComment -> SingleLineComment: /\/\/[^\n\r\u2028\u2029]*/  (space)
+SingleLineComment: /\/\/[^\n\r\u2028\u2029]*/  (space)
 
-Identifier -> Identifier: /[a-zA-Y](-*[a-zA-Z_0-9])*/    (class)
+Identifier: /[a-zA-Y](-*[a-zA-Z_0-9])*/    (class)
 Identifier2: /^[\p{Any}-[\x80-\U0010ffff]-\p{Lu}]/
 
 IntegerConstant {int}: /[0-9]+/ { $$ = mustParseInt(l.Text()) }
@@ -37,7 +36,7 @@ lastInt: /[0-9]+(\n|{eoi})/
 'as':        /as/
 
 'if': /if/
-'else': /else/
+"else": /else/
 
 # Punctuation
 '{': /\{/
@@ -61,7 +60,7 @@ lastInt: /[0-9]+(\n|{eoi})/
 multiline: /%\s*q((\n|{eoi})%\s*q)+/
 
 dquote: /"/
-'\'': /'/
+'\'' (squote): /'/
 
 # No backtracking required.
 hex = /[0-9a-fA-F]/
@@ -69,20 +68,20 @@ esc = /u{hex}{4}/
 idChar = /[a-zA-Z]|\\{esc}/
 
 SharpAtID: /Z{idChar}+/    (class)
-invalid_token -> InvalidToken: /Z{idChar}*\\(u{hex}{0,3})?/
+invalid_token: /Z{idChar}*\\(u{hex}{0,3})?/
 'Zfoo': /Zfoo/
 
 # Backtracing required.
 backtrackingToken: /test(foo)?-+>/
 
 error:
-invalid_token -> InvalidToken:
+invalid_token:
 eoi:
 
 %x inMultiLine;
 
 # This is an example of how one can support nested block comments.
-MultiLineComment -> MultiLineComment:  /\/\*/ (space)
+MultiLineComment:  /\/\*/ (space)
   {
     l.State = StateInMultiLine
     commentOffset = l.tokenOffset
@@ -91,17 +90,17 @@ MultiLineComment -> MultiLineComment:  /\/\*/ (space)
   }
 
 <inMultiLine> {
-  invalid_token -> InvalidToken: /{eoi}/
+  invalid_token: /{eoi}/
     {
       l.tokenOffset = commentOffset
       l.State = StateInitial
     }
-  MultiLineComment -> MultiLineComment: /\/\*/ (space)
+  MultiLineComment: /\/\*/ (space)
     {
       commentDepth++
       space = true
     }
-  MultiLineComment -> MultiLineComment: /\*\// (space)
+  MultiLineComment: /\*\// (space)
     {
       if commentDepth == 0 {
         space = false
@@ -122,7 +121,12 @@ MultiLineComment -> MultiLineComment:  /\/\*/ (space)
 
 %input Test, Decl1;
 
-Test -> Test :
+%inject SingleLineComment -> SingleLineComment;
+%inject Identifier -> Identifier;
+%inject invalid_token -> InvalidToken;
+%inject MultiLineComment -> MultiLineComment;
+
+Test -> Test:
     Declaration+ ;
 
 # Test: an interface with a type rule.
@@ -190,8 +194,8 @@ Decl2 -> Decl2Interface :
 %expect 1;
 
 If -> If:
-    'if' '(' ')' then=Decl2
-  | 'if' '(' ')' then=Decl2 'else' else=Decl2
+    'if' '(' O ')' then=Decl2[then]   { /* 4: $then */ }
+  | 'if' '(' O ')' then=Decl2 "else" else=Decl2
 ;
 
 %nonassoc 'as';
@@ -205,6 +209,13 @@ expr -> Expr:
   | primaryExpr
 ;
 
+O :
+      elem+ ;
+
+elem -> Elem:
+      'f_a' .greedy | 'f_a' 'as' | 'as' ;  # prefer reduce over shift
+
+
 customPlus -> __ignoreContent:
   '\\' primaryExpr '+' expr { p.listener(PlusExpr, 0, ${first().offset}, ${last().endoffset}) } ;
 
@@ -215,11 +226,11 @@ primaryExpr<flag WithoutAs = false> -> Expr:
 ;
 
 extend primaryExpr -> Expr:
-  IntegerConstant -> IntExpr ;
+  (/*empty*/ -> Bar) IntegerConstant -> IntExpr ;
 
 %%
 
-${template go_lexer.onAfterLexer}
+{{define "onAfterLexer"}}
 func mustParseInt(s string) int {
 	i, err := "strconv".Atoi(s)
 	if err != nil {
@@ -227,19 +238,17 @@ func mustParseInt(s string) int {
 	}
 	return i
 }
-${end}
+{{end}}
 
-${template go_lexer.onBeforeNext-}
+{{define "onBeforeNext"}}
 	var commentOffset, commentDepth int
-${end}
+{{end}}
 
-${query go_listener.hasFlags() = true}
-
-${template go_parser.onAfterParser}
+{{define "onAfterParser"}}
 func parserEnd() {}
-${end}
+{{end}}
 
-${template go_parser.customReportNext-}
+{{define "customReportNext"}}
 default:
    break
-${end}
+{{end}}

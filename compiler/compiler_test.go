@@ -24,6 +24,8 @@ var testFiles = []string{
 	"parser.tmerr",
 	"parser_confl.tmerr",
 	"noinput.tmerr",
+	"inline_input.tmerr",
+	"templ_input.tmerr",
 	"badinput.tmerr",
 	"backtrack.tmerr",
 	"set.tmerr",
@@ -32,6 +34,8 @@ var testFiles = []string{
 	"lr0.tmerr",
 	"greedy.tmerr",
 	"inject.tmerr",
+	"flexmode.tmerr",
+	"max_la.tmerr",
 }
 
 func TestErrors(t *testing.T) {
@@ -43,36 +47,34 @@ func TestErrors(t *testing.T) {
 			continue
 		}
 
-		for _, compat := range []bool{true, false} {
-			inp := string(content)
-			pt := parsertest.New(t, fmt.Sprintf("%v (compat=%v)", file, compat), inp)
+		inp := string(content)
+		pt := parsertest.New(t, file, inp)
 
-			var want []string
-			for _, line := range strings.Split(inp, "\n") {
-				const prefix = "# err: "
-				switch {
-				case strings.HasPrefix(line, prefix):
-					want = append(want, line[len(prefix):])
-				case line == "# err:":
-					want = append(want, "")
-				}
+		var want []string
+		for _, line := range strings.Split(inp, "\n") {
+			const prefix = "# err: "
+			switch {
+			case strings.HasPrefix(line, prefix):
+				want = append(want, line[len(prefix):])
+			case line == "# err:":
+				want = append(want, "")
 			}
+		}
 
-			var got []string
-			_, err = Compile(ctx, file, pt.Source(), Params{Compat: compat})
-			if err != nil {
-				s := status.FromError(err)
-				s.Sort()
-				for _, e := range s {
-					pt.Consume(t, e.Origin.Offset, e.Origin.EndOffset)
-					got = append(got, e.Msg)
-				}
+		var got []string
+		_, err = Compile(ctx, file, pt.Source(), Params{})
+		if err != nil {
+			s := status.FromError(err)
+			s.Sort()
+			for _, e := range s {
+				pt.Consume(t, e.Origin.Offset, e.Origin.EndOffset)
+				got = append(got, e.Msg)
 			}
-			pt.Done(t, nil)
-			if diff := diff.LineDiff(strings.Join(want, "\n"), strings.Join(got, "\n")); diff != "" {
-				t.Errorf("%v (compat=%v): errors diff\n--- want\n+++ got\n%v\n", file, compat, diff)
-				break
-			}
+		}
+		pt.Done(t, nil)
+		if diff := diff.LineDiff(strings.Join(want, "\n"), strings.Join(got, "\n")); diff != "" {
+			t.Errorf("%v: errors diff\n--- want\n+++ got\n%v\n", file, diff)
+			break
 		}
 	}
 }
@@ -96,7 +98,6 @@ func TestSourceModel(t *testing.T) {
 			continue
 		}
 		file := ast.File{Node: tree.Root()}
-		const compat = false
 
 		var s status.Status
 
@@ -105,13 +106,10 @@ func TestSourceModel(t *testing.T) {
 
 		resolver := newResolver(&s)
 
-		lexer := newLexerCompiler(opts, resolver, compat, &s)
+		lexer := newLexerCompiler(opts.out, resolver, &s)
 		lexer.compile(file)
 
-		// Resolve terminal references.
-		opts.resolve(resolver)
-
-		c := newCompiler(file, opts.out, lexer.out, resolver, Params{Compat: compat}, &s)
+		c := newCompiler(file, opts.out, lexer.out, resolver, Params{}, &s)
 		c.compileParser(file)
 
 		if s.Err() != nil {
@@ -150,5 +148,46 @@ func writeNonterm(nt *syntax.Nonterm, b *strings.Builder) {
 		b.WriteString(";\n\n")
 	} else {
 		fmt.Fprintf(b, "  %v ;\n\n", nt.Value)
+	}
+}
+
+var debugFiles = []string{
+	"debug.tm",
+}
+
+func TestDebugInfo(t *testing.T) {
+	ctx := context.Background()
+	for _, file := range debugFiles {
+		content, err := os.ReadFile(filepath.Join("testdata", file))
+		if err != nil {
+			t.Errorf("cannot read %v: %v", file, err)
+			continue
+		}
+
+		tree, err := ast.Parse(ctx, file, string(content), tm.StopOnFirstError)
+		if err != nil {
+			t.Errorf("%v: parsing failed with %v", file, err)
+			continue
+		}
+
+		g, err := Compile(ctx, file, string(content), Params{DebugTables: true})
+		if err != nil {
+			t.Errorf("%v: compilation failed with %v", file, err)
+			continue
+		}
+
+		want := strings.TrimPrefix(tree.Root().Child(selector.Templates).Text(), "%%")
+		var b strings.Builder
+		b.WriteString("\n\n")
+		for _, info := range g.Parser.Tables.DebugInfo {
+			b.WriteString(info)
+			b.WriteByte('\n')
+		}
+		got := b.String()
+
+		if diff := diff.LineDiff(want, got); diff != "" {
+			t.Errorf("The in-file debug info does not match the produced one.\n--- %v\n+++ %v (produced)\n%v", file, file, diff)
+			t.Logf("Run (cd compiler/testdata; go run ../../cmd/textmapper/*.go debug --tables %v >> %v) to regenerate.", file, file)
+		}
 	}
 }

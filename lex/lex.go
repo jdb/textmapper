@@ -4,6 +4,7 @@ package lex
 import (
 	"fmt"
 	"sort"
+	"unicode/utf8"
 
 	"github.com/inspirer/textmapper/status"
 )
@@ -14,7 +15,7 @@ type Rule struct {
 	Resolver        Resolver
 	StartConditions []int
 	Precedence      int // Precedence disambiguates between rules that match the same prefix.
-	Action          int // -1 return EOI, -2 fail and try backtrack, otherwise must be >= 0
+	Action          int // non-negative; 0 fail and try backtrack, 1 return eoi
 	Origin          status.SourceNode
 }
 
@@ -40,8 +41,10 @@ func (re RangeEntry) String() string {
 
 // Tables holds generated lexer tables.
 type Tables struct {
+	// If true, the lexer will scan bytes instead of runes.
+	ScanBytes bool
 	// SymbolMap translates runes into DFA symbols. This slice is sorted by "Start" and covers all
-	// unicode runes.
+	// unicode runes (or bytes if ScanBytes is true).
 	SymbolMap []RangeEntry
 	// The maximum value in SymbolMap.Target plus one.
 	NumSymbols int
@@ -171,22 +174,35 @@ func (t *Tables) ActionStart() int {
 func (t *Tables) Scan(start int, text string) (size, action int) {
 	state := t.StateMap[start]
 	actionStart := t.ActionStart()
-	for index, r := range text {
+	var index int
+	for index < len(text) {
+		var r rune
+		start := index
+		if t.ScanBytes {
+			r = rune(text[index])
+			index++
+		} else {
+			var w int
+			r, w = utf8.DecodeRuneInString(text[index:])
+			index += w
+		}
+
 		i := sort.Search(len(t.SymbolMap), func(i int) bool { return i+1 == len(t.SymbolMap) || t.SymbolMap[i+1].Start > r })
 		ch := int(t.SymbolMap[i].Target)
 		state = t.Dfa[state*t.NumSymbols+ch]
 		if state < 0 {
 			if state > actionStart {
 				bt := t.Backtrack[-1-state]
-				action, state = bt.Action-2, bt.NextState
-				size = index
+				// Checkpoint.
+				action, state = bt.Action, bt.NextState
+				size = start
 				continue
 			}
 			if actionStart == state && size > 0 {
 				// Backtrack.
 				return
 			}
-			return index, actionStart - state - 2
+			return start, actionStart - state
 		}
 	}
 	state = t.Dfa[state*t.NumSymbols] // end-of-input transition
@@ -194,7 +210,7 @@ func (t *Tables) Scan(start int, text string) (size, action int) {
 		// Backtrack.
 		return
 	}
-	return len(text), actionStart - state - 2
+	return len(text), actionStart - state
 }
 
 // Resolver retrieves named regular expressions.
@@ -203,7 +219,7 @@ type Resolver interface {
 }
 
 // Compile combines a set of rules into a lexer.
-func Compile(rules []*Rule, allowBacktracking bool) (*Tables, error) {
+func Compile(rules []*Rule, scanBytes, allowBacktracking bool) (*Tables, error) {
 	var s status.Status
 	var index []int
 	var maxSC int
@@ -220,7 +236,7 @@ func Compile(rules []*Rule, allowBacktracking bool) (*Tables, error) {
 		}
 		index = append(index, i)
 	}
-	ins, inputMap := c.compile()
+	ins, inputMap := c.compile(scanBytes)
 
 	var maxSym Sym
 	for _, re := range inputMap {
@@ -246,6 +262,7 @@ func Compile(rules []*Rule, allowBacktracking bool) (*Tables, error) {
 	s.AddError(err)
 
 	ret := &Tables{
+		ScanBytes:  scanBytes,
 		SymbolMap:  inputMap,
 		NumSymbols: numSymbols,
 		Dfa:        dfa,

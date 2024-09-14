@@ -10,8 +10,6 @@ type Selector func(nt tm.NodeType) bool
 
 var (
 	Any                  = func(t tm.NodeType) bool { return true }
-	AnnotationImpl       = func(t tm.NodeType) bool { return t == tm.AnnotationImpl }
-	Annotations          = func(t tm.NodeType) bool { return t == tm.Annotations }
 	ArgumentFalse        = func(t tm.NodeType) bool { return t == tm.ArgumentFalse }
 	ArgumentTrue         = func(t tm.NodeType) bool { return t == tm.ArgumentTrue }
 	ArgumentVal          = func(t tm.NodeType) bool { return t == tm.ArgumentVal }
@@ -36,21 +34,23 @@ var (
 	Identifier           = func(t tm.NodeType) bool { return t == tm.Identifier }
 	Import               = func(t tm.NodeType) bool { return t == tm.Import }
 	InclusiveStartConds  = func(t tm.NodeType) bool { return t == tm.InclusiveStartConds }
+	Inline               = func(t tm.NodeType) bool { return t == tm.Inline }
 	InlineParameter      = func(t tm.NodeType) bool { return t == tm.InlineParameter }
 	Inputref             = func(t tm.NodeType) bool { return t == tm.Inputref }
 	IntegerLiteral       = func(t tm.NodeType) bool { return t == tm.IntegerLiteral }
 	Lexeme               = func(t tm.NodeType) bool { return t == tm.Lexeme }
 	LexemeAttribute      = func(t tm.NodeType) bool { return t == tm.LexemeAttribute }
 	LexemeAttrs          = func(t tm.NodeType) bool { return t == tm.LexemeAttrs }
+	LexemeId             = func(t tm.NodeType) bool { return t == tm.LexemeId }
 	LexerSection         = func(t tm.NodeType) bool { return t == tm.LexerSection }
 	LexerState           = func(t tm.NodeType) bool { return t == tm.LexerState }
 	ListSeparator        = func(t tm.NodeType) bool { return t == tm.ListSeparator }
 	LookaheadPredicate   = func(t tm.NodeType) bool { return t == tm.LookaheadPredicate }
-	Name                 = func(t tm.NodeType) bool { return t == tm.Name }
 	NamedPattern         = func(t tm.NodeType) bool { return t == tm.NamedPattern }
 	NoEoi                = func(t tm.NodeType) bool { return t == tm.NoEoi }
 	NonEmpty             = func(t tm.NodeType) bool { return t == tm.NonEmpty }
 	Nonterm              = func(t tm.NodeType) bool { return t == tm.Nonterm }
+	NontermAlias         = func(t tm.NodeType) bool { return t == tm.NontermAlias }
 	NontermParams        = func(t tm.NodeType) bool { return t == tm.NontermParams }
 	Not                  = func(t tm.NodeType) bool { return t == tm.Not }
 	Option               = func(t tm.NodeType) bool { return t == tm.Option }
@@ -68,10 +68,10 @@ var (
 	RawType              = func(t tm.NodeType) bool { return t == tm.RawType }
 	ReportAs             = func(t tm.NodeType) bool { return t == tm.ReportAs }
 	ReportClause         = func(t tm.NodeType) bool { return t == tm.ReportClause }
-	RhsAnnotated         = func(t tm.NodeType) bool { return t == tm.RhsAnnotated }
-	RhsAsLiteral         = func(t tm.NodeType) bool { return t == tm.RhsAsLiteral }
+	RhsAlias             = func(t tm.NodeType) bool { return t == tm.RhsAlias }
 	RhsAssignment        = func(t tm.NodeType) bool { return t == tm.RhsAssignment }
 	RhsCast              = func(t tm.NodeType) bool { return t == tm.RhsCast }
+	RhsEmpty             = func(t tm.NodeType) bool { return t == tm.RhsEmpty }
 	RhsIgnored           = func(t tm.NodeType) bool { return t == tm.RhsIgnored }
 	RhsLookahead         = func(t tm.NodeType) bool { return t == tm.RhsLookahead }
 	RhsNested            = func(t tm.NodeType) bool { return t == tm.RhsNested }
@@ -79,10 +79,10 @@ var (
 	RhsPlusAssignment    = func(t tm.NodeType) bool { return t == tm.RhsPlusAssignment }
 	RhsPlusList          = func(t tm.NodeType) bool { return t == tm.RhsPlusList }
 	RhsPlusQuantifier    = func(t tm.NodeType) bool { return t == tm.RhsPlusQuantifier }
+	RhsPrec              = func(t tm.NodeType) bool { return t == tm.RhsPrec }
 	RhsSet               = func(t tm.NodeType) bool { return t == tm.RhsSet }
 	RhsStarList          = func(t tm.NodeType) bool { return t == tm.RhsStarList }
 	RhsStarQuantifier    = func(t tm.NodeType) bool { return t == tm.RhsStarQuantifier }
-	RhsSuffix            = func(t tm.NodeType) bool { return t == tm.RhsSuffix }
 	RhsSymbol            = func(t tm.NodeType) bool { return t == tm.RhsSymbol }
 	Rule                 = func(t tm.NodeType) bool { return t == tm.Rule }
 	SetAnd               = func(t tm.NodeType) bool { return t == tm.SetAnd }
@@ -103,7 +103,6 @@ var (
 	MultilineComment     = func(t tm.NodeType) bool { return t == tm.MultilineComment }
 	Comment              = func(t tm.NodeType) bool { return t == tm.Comment }
 	Templates            = func(t tm.NodeType) bool { return t == tm.Templates }
-	Annotation           = OneOf(tm.Annotation...)
 	Argument             = OneOf(tm.Argument...)
 	Expression           = OneOf(tm.Expression...)
 	GrammarPart          = OneOf(tm.GrammarPart...)

@@ -9,7 +9,7 @@ import (
 )
 
 var lexerTests = []struct {
-	tok    token.Token
+	tok    token.Type
 	inputs []string
 }{
 
@@ -17,6 +17,9 @@ var lexerTests = []struct {
 		`«abc» «brea» as // <- keyword`,
 		`«abc123»`,
 		`«_abc_»`,
+	}},
+	{token.QUOTED_ID, []string{
+		`«'a'» «'\n'»`,
 	}},
 	{token.COMMENT, []string{
 		` «// foo»
@@ -64,6 +67,17 @@ var lexerTests = []struct {
 
 		`«{ skip("{{{", '}', '\''); }» `,
 		`«{ skip("\"}\\"); }» `,
+		`«{ skip(  // }
+		       }» `,
+		`«{ skip(  /* }
+               " and ' are ok
+		     */  }» `,
+		`«{ skip(  /* }
+               " and ' are ok
+		     */}» `,
+		`«{ skip(  /* <-not closed }» `,
+		`«{ skip(  // <-not closed }» `,
+		`«{ skip(  a/b }» `,
 		"language l(a); :: lexer\n<*> { error: /abc/ «{}» }",
 	}},
 	{token.LBRACE, []string{
@@ -72,7 +86,7 @@ var lexerTests = []struct {
 	{token.TEMPLATES, []string{
 		`  «%%  »`,
 		`asd
-    «%% 
+    «%%
      foo bar
         »`,
 	}},
@@ -107,7 +121,7 @@ var lexerTests = []struct {
 	{token.AND, []string{`«&»`}},
 	{token.ANDAND, []string{`«&&»`}},
 	{token.DOLLAR, []string{`«$»`}},
-	{token.ATSIGN, []string{`«@»`}},
+	{token.AT, []string{`«@»`}},
 
 	// Keywords.
 	{token.AS, []string{`«as»`}},
@@ -157,7 +171,7 @@ var lexerTests = []struct {
 
 func TestLexer(t *testing.T) {
 	l := new(tm.Lexer)
-	seen := map[token.Token]bool{}
+	seen := map[token.Type]bool{}
 	seen[token.WHITESPACE] = true
 	seen[token.ERROR] = true
 	for _, tc := range lexerTests {

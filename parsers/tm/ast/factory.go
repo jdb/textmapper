@@ -10,10 +10,6 @@ import (
 
 func ToTmNode(n *Node) TmNode {
 	switch n.Type() {
-	case tm.AnnotationImpl:
-		return &AnnotationImpl{n}
-	case tm.Annotations:
-		return &Annotations{n}
 	case tm.ArgumentFalse:
 		return &ArgumentFalse{n}
 	case tm.ArgumentTrue:
@@ -62,6 +58,8 @@ func ToTmNode(n *Node) TmNode {
 		return &Import{n}
 	case tm.InclusiveStartConds:
 		return &InclusiveStartConds{n}
+	case tm.Inline:
+		return &Inline{n}
 	case tm.InlineParameter:
 		return &InlineParameter{n}
 	case tm.Inputref:
@@ -74,6 +72,8 @@ func ToTmNode(n *Node) TmNode {
 		return &LexemeAttribute{n}
 	case tm.LexemeAttrs:
 		return &LexemeAttrs{n}
+	case tm.LexemeId:
+		return &LexemeId{n}
 	case tm.LexerSection:
 		return &LexerSection{n}
 	case tm.LexerState:
@@ -82,8 +82,6 @@ func ToTmNode(n *Node) TmNode {
 		return &ListSeparator{n}
 	case tm.LookaheadPredicate:
 		return &LookaheadPredicate{n}
-	case tm.Name:
-		return &Name{n}
 	case tm.NamedPattern:
 		return &NamedPattern{n}
 	case tm.NoEoi:
@@ -92,6 +90,8 @@ func ToTmNode(n *Node) TmNode {
 		return &NonEmpty{n}
 	case tm.Nonterm:
 		return &Nonterm{n}
+	case tm.NontermAlias:
+		return &NontermAlias{n}
 	case tm.NontermParams:
 		return &NontermParams{n}
 	case tm.Not:
@@ -126,14 +126,14 @@ func ToTmNode(n *Node) TmNode {
 		return &ReportAs{n}
 	case tm.ReportClause:
 		return &ReportClause{n}
-	case tm.RhsAnnotated:
-		return &RhsAnnotated{n}
-	case tm.RhsAsLiteral:
-		return &RhsAsLiteral{n}
+	case tm.RhsAlias:
+		return &RhsAlias{n}
 	case tm.RhsAssignment:
 		return &RhsAssignment{n}
 	case tm.RhsCast:
 		return &RhsCast{n}
+	case tm.RhsEmpty:
+		return &RhsEmpty{n}
 	case tm.RhsIgnored:
 		return &RhsIgnored{n}
 	case tm.RhsLookahead:
@@ -148,14 +148,14 @@ func ToTmNode(n *Node) TmNode {
 		return &RhsPlusList{n}
 	case tm.RhsPlusQuantifier:
 		return &RhsPlusQuantifier{n}
+	case tm.RhsPrec:
+		return &RhsPrec{n}
 	case tm.RhsSet:
 		return &RhsSet{n}
 	case tm.RhsStarList:
 		return &RhsStarList{n}
 	case tm.RhsStarQuantifier:
 		return &RhsStarQuantifier{n}
-	case tm.RhsSuffix:
-		return &RhsSuffix{n}
 	case tm.RhsSymbol:
 		return &RhsSymbol{n}
 	case tm.Rule:
