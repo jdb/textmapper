@@ -26,6 +26,12 @@ TEST(MarkupTest, Parse) {
   EXPECT_EQ(markup::Parse("f««o»o»"),
             std::make_tuple(std::vector<markup::Range>{{1, 2}, {1, 3}},
                             std::string{"foo"}));
-}
+  EXPECT_EQ(markup::Parse("f«中»o"),
+            std::make_tuple(std::vector<markup::Range>{{1, 4}},
+                            std::string{"f中o"}));
+  EXPECT_EQ(markup::Parse("f«🎉»o"),
+            std::make_tuple(std::vector<markup::Range>{{1, 5}},
+                            std::string{"f🎉o"}));
+                }
 
 }  // namespace
