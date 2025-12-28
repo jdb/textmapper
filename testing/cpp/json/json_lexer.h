@@ -15,16 +15,15 @@ inline constexpr absl::string_view bomSeq = "\xef\xbb\xbf";
 
 class Lexer {
  public:
-  // Lexer states.
-  enum class State : std::uint32_t {
-    Initial = 0,
-    Foo = 1,
-  };
+    // Lexer states.
+    enum class State : std::uint32_t {
+      Initial = 0,
+      Foo = 1,
+    };
 
   struct Location {
     Location(int64_t b = 0, int64_t e = 0) : begin(b), end(e) {}
-    friend inline std::ostream& operator<<(std::ostream& os,
-                                           const Location& l) {
+    friend inline std::ostream& operator<<(std::ostream& os, const Location& l) {
       return os << "[" << l.begin << "-" << l.end << "]";
     }
     // Byte offsets into input buffer.
@@ -60,6 +59,10 @@ class Lexer {
   void set_state(State state) { start_state_ = state; }
   ABSL_MUST_USE_RESULT State state() { return start_state_; }
 
+  // "Read-only" rune offsets (modified only by Next() and internal methods)
+  int64_t token_offset_rune_ = 0;  // last token UTF-8 rune offset
+  int64_t offset_rune_ = 0;         // UTF-8 rune offset
+
  private:
   // Rewind can be used in lexer actions to accept a portion of a scanned token,
   // or to include more text into it.
@@ -81,8 +84,39 @@ class Lexer {
 
 inline std::ostream& operator<<(std::ostream& os, const Lexer& lexer) {
   return os << "json::Lexer at line " << lexer.LastTokenLine() << " location "
-            << lexer.LastTokenLocation() << " last token was \"" << lexer.Text()
-            << "\"";
+            << lexer.LastTokenLocation() << " last token was \""
+            << lexer.Text() << "\"";
+}
+
+// Counts the number of UTF-8 runes between start_byte_offset and end_byte_offset.
+// Requires start_byte_offset <= end_byte_offset.
+inline int64_t countRunes(absl::string_view str, int64_t start_byte_offset, int64_t end_byte_offset) {
+  int64_t rune_count = 0;
+  int64_t str_size = static_cast<int64_t>(str.size());
+  int64_t i = start_byte_offset;
+  
+  while (i < end_byte_offset && i < str_size) {
+    bool is_continuation = false;
+    if ((str[i] & 0x80) == 0) {
+      i++;  // ASCII
+    } else if ((str[i] & 0xE0) == 0xC0 && i + 1 < str_size) {
+      i += 2;  // 2-byte sequence
+    } else if ((str[i] & 0xF0) == 0xE0 && i + 2 < str_size) {
+      i += 3;  // 3-byte sequence
+    } else if ((str[i] & 0xF8) == 0xF0 && i + 3 < str_size) {
+      i += 4;  // 4-byte sequence
+    } else if ((str[i] & 0xC0) == 0x80) {
+      // Continuation byte (0x80-0xBF) - skip without counting
+      i++;
+      is_continuation = true;
+    } else {
+      i++;  // Invalid sequence, treat as single byte
+    }
+    if (!is_continuation) {
+      rune_count++;
+    }
+  }
+  return rune_count;
 }
 
 }  // namespace json

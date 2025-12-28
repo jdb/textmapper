@@ -168,6 +168,7 @@ restart:
   token_column_ = offset_ - line_offset_ + 1;
 {{ end -}}
   token_offset_ = offset_;
+  token_offset_rune_ = offset_rune_;
 
   int state = {{ if gt (len .Lexer.StartConditions) 1 }}tmStateMap[static_cast<uint32_t>(start_state_)]{{else}}{{index .Lexer.Tables.StateMap 0}}{{end}};
 {{ if .Lexer.ClassActions -}}
@@ -243,6 +244,7 @@ restart:
 {{ end -}}
 
       // Scan the next character.
+      offset_rune_ += countRunes(source_, offset_, scan_offset_);
       offset_ = scan_offset_;
       if (offset_ < source_.size()) {
 {{ if .Options.ScanBytes -}}
@@ -370,6 +372,7 @@ void Lexer::Rewind(int64_t rewind_offset) {
 {{ end -}}
   // Scan the next character.
   scan_offset_ = rewind_offset;
+  offset_rune_ -= countRunes(source_, rewind_offset, offset_);
   offset_ = rewind_offset;
   if (offset_ < source_.size()) {
 {{ if .Options.ScanBytes -}}
