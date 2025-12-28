@@ -380,7 +380,7 @@ int64_t Parser::skipBrokenCode(Lexer& lexer, std::vector<stackEntry>& stack, std
   }
   switch (Token(next_symbol_.symbol)) {
   case Token::JSONSTRING:
-    listener_(NodeType::JsonString, NodeFlags::None, next_symbol_.location);
+    listener_(NodeType::JSONString, NodeFlags::None, next_symbol_.location);
     break;
     default:
       break;
@@ -741,7 +741,7 @@ absl::Status Parser::Parse(int8_t start, int8_t end,
         if (next_symbol_.symbol != eoiToken) {
   switch (Token(next_symbol_.symbol)) {
   case Token::JSONSTRING:
-    listener_(NodeType::JsonString, NodeFlags::None, next_symbol_.location);
+    listener_(NodeType::JSONString, NodeFlags::None, next_symbol_.location);
     break;
     default:
       break;

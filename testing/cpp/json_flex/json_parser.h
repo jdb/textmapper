@@ -52,7 +52,7 @@ enum class NodeType {
   SyntaxProblem,
   MultiLineComment,
   InvalidToken,
-  JsonString,
+  JSONString,
   NonExistingType,
   NodeTypeMax
 };
@@ -76,7 +76,7 @@ constexpr inline std::array<absl::string_view,
   "SyntaxProblem",
   "MultiLineComment",
   "InvalidToken",
-  "JsonString",
+  "JSONString",
   "NonExistingType",
 };
 

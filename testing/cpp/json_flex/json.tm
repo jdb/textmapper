@@ -38,7 +38,7 @@ kw_null:
 
 %inject MultiLineComment -> MultiLineComment/Bar,Foo;
 %inject invalid_token -> InvalidToken;
-%inject JSONString -> JsonString;
+%inject JSONString -> JSONString;
 
 %generate Literals = set(first JSONValue<+A>);
 
