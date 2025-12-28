@@ -7,3 +7,5 @@
 /vscode-ext/node_modules/
 /vscode-ext/out/
 .vscode
+venv/
+__pycache__/
