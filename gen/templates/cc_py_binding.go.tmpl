@@ -1,0 +1,91 @@
+{{ template "header" . -}}
+#include "{{.Options.FilenamePrefix}}lexer.h"
+#include "{{.Options.FilenamePrefix}}token.h"
+
+#include <nanobind/nanobind.h>
+#include <nanobind/stl/string.h>
+#include <nanobind/stl/string_view.h>
+#include <nanobind/stl/tuple.h>
+#include <nanobind/stl/function.h>
+#include <functional>
+#include <memory>
+#include <type_traits>
+
+namespace nb = nanobind;
+using namespace nb::literals;
+
+namespace {{.Options.Namespace}} {
+
+// Bind Token enum
+void bind_token(nb::module_ &m) {
+  nb::enum_<Token>(m, "Token")
+      .value("UNAVAILABLE", Token::UNAVAILABLE)
+      .value("EOI", Token::EOI)
+{{- if .Lexer.InvalidToken}}
+      .value("INVALID_TOKEN", Token::INVALID_TOKEN)
+{{- end}}
+{{- range .Tokens}}
+{{- if and (ne .ID "UNAVAILABLE") (ne .ID "EOI") (ne .ID "INVALID_TOKEN")}}
+      .value("{{.ID}}", Token::{{.ID}})
+{{- end}}
+{{- end}}
+      .value("NumTokens", Token::NumTokens);
+}
+
+{{ if gt (len .Lexer.StartConditions) 1 -}}
+// Bind State enum
+void bind_state(nb::module_ &m) {
+  nb::enum_<Lexer::State>(m, "State")
+{{- range .Lexer.StartConditions}}
+      .value("{{title .}}", Lexer::State::{{title .}})
+{{- end}}
+      ;
+}
+{{ end -}}
+
+// Wrapper to hold both the owned string and the Lexer.
+// This is necessary to ensure that the std:string built by nanobind from the Python string is alive as long as the Lexer is alive. 
+// An alternative would be to change the constructor of the Lexer to receive a std:string and copy it internally.
+// It is better is to keep the Lexer receiving a absl::string_view.
+struct LexerWrapper {
+  std::string source_owned_;
+  Lexer lexer;
+  
+  LexerWrapper(std::string s) 
+    : source_owned_(std::move(s)),
+      lexer(source_owned_) {}
+};
+
+// Bind Lexer class
+void bind_lexer(nb::module_ &m) {
+  nb::class_<LexerWrapper>(m, "Lexer")
+      .def(nb::init<std::string>(), "input_source"_a)
+      .def("next", [](LexerWrapper& w) { return w.lexer.Next(); }, "Find and return the next token in source")
+      .def_prop_ro("begin", [](const LexerWrapper& w) { return w.lexer.token_offset_rune_; }, "Start offset of the current token in terms of utf-8 runes")
+      .def_prop_ro("end", [](const LexerWrapper& w) { return w.lexer.offset_rune_; }, "End offset of the current token in terms of utf-8 runes")
+      .def_prop_ro("line", [](const LexerWrapper& w) { return w.lexer.LastTokenLine(); }, "Line number of the last token (1-based)")
+      .def_prop_ro("column", [](const LexerWrapper& w) { return w.lexer.LastTokenColumn(); }, "Column of the last token (in bytes, 1-based)")
+      .def_prop_ro("text", [](const LexerWrapper& w) { return w.lexer.Text(); }, "Substring of the input corresponding to the last token");
+}
+
+{{ if .Parser.Types -}}
+// Location struct for Python (wraps Lexer::Location)
+struct Location {
+  int64_t begin;
+  int64_t end;
+  
+  Location(int64_t b = 0, int64_t e = 0) : begin(b), end(e) {}
+};
+
+}  // namespace {{.Options.Namespace}}
+
+NB_MODULE(nblexer, m) {
+  m.doc() = "Python bindings for the {{.Name}} lexer and parser";
+  
+  {{.Options.Namespace}}::bind_token(m);
+{{ if gt (len .Lexer.StartConditions) 1 -}}
+  {{.Options.Namespace}}::bind_state(m);
+{{ end -}}
+  {{.Options.Namespace}}::bind_lexer(m);
+}
+

@@ -6,3 +6,17 @@ build --repo_env=CC=clang
 build --repo_env=CXX=clang++
 build --repo_env=BAZEL_CXXOPTS="-std=c++17"
 build --macos_sdk_version=14.0
+
+# Ensure C++17 is used for all C++ compilation, including external dependencies like nanobind
+build --cxxopt=-std=c++17
+build --per_file_copt=external/nanobind_bazel@-std=c++17
+
+# Disable C++ modules to avoid standard library header issues
+build --cxxopt=-fno-modules
+build --cxxopt=-isystem
+build --cxxopt=/usr/include/c++/13
+build --cxxopt=-isystem
+build --cxxopt=/usr/include/x86_64-linux-gnu/c++/13
+build --linkopt=-L/usr/lib/x86_64-linux-gnu
+build --linkopt=-lstdc++
+build --linkopt=-L/usr/lib/gcc/x86_64-linux-gnu/13

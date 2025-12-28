@@ -11,6 +11,25 @@ bazel_dep(name = "abseil-cpp", version = "20250127.0")
 bazel_dep(name = "googletest", version = "1.15.2")
 bazel_dep(name = "google_benchmark", version = "1.9.1")
 
+# Python
+bazel_dep(name = "rules_python", version = "0.33.2")
+
+# Initialize Python toolchain for Python 3.11
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    python_version = "3.11",
+)
+
+# Python pip dependencies
+# For rules_python 0.33.2, use pip.parse with hub_name, python_version, and requirements_lock
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.parse(
+    hub_name = "pypi",
+    python_version = "3.11",
+    requirements_lock = "//cpp/json:requirements_lock.txt",
+)
+use_repo(pip, "pypi")
+
 # C++ toolchain configuration
 cc_toolchain_config = use_extension("@bazel_tools//tools/cpp:cc_toolchain_config.bzl", "cc_toolchain_config")
 cc_toolchain_config.toolchain(
@@ -65,3 +84,6 @@ rules_ts_ext.deps(
     ts_version_from = "//ts:package.json",
 )
 use_repo(rules_ts_ext, "npm_typescript")
+
+# Nanobind for Python bindings
+bazel_dep(name = "nanobind_bazel", version = "2.9.2")

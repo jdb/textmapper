@@ -54,6 +54,9 @@ var languages = map[string]*language{
 			{"parser.h", builtin(`cc_parser_h`)},
 			{"parser.cc", builtin(`cc_parser_cc`)},
 		},
+		Nanobind: []file{
+			{"py_binding.cpp", builtin(`cc_py_binding`)},
+		},
 	},
 
 	"ts": {
@@ -99,6 +102,7 @@ type language struct {
 	AST      []file
 	TypedAST []file
 	Bison    []file
+	Nanobind []file
 
 	SharedDefs string
 	CachedDefs string
@@ -135,6 +139,10 @@ func (l *language) templates(g *grammar.Grammar) []file {
 	}
 	if g.Options.WriteBison {
 		ret = append(ret, file{name: g.Name + ".y", template: bisonTpl})
+	}
+	// Include nanobind bindings for C++ if available
+	if g.TargetLang == "cc" && len(l.Nanobind) > 0 {
+		ret = append(ret, l.Nanobind...)
 	}
 	return ret
 }

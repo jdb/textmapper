@@ -7,8 +7,9 @@ tokenColumn = true
 filenamePrefix = "json_"
 optimizeTables = true
 eventBased = true
-extraTypes = ["NonExistingType"]
-parseParams = ["int a", "bool b"]
+eventAST = true
+genSelector = true
+parseParams = ["int x", "bool y"]
 debugParser = true
 scanBytes = true
 
@@ -61,40 +62,40 @@ invalid_token:
 
 %inject MultiLineComment -> MultiLineComment/Bar,Foo;
 %inject invalid_token -> InvalidToken;
-%inject JSONString -> JsonString;
+%inject JSONString -> JSONString;
 
 %generate Literals = set(first JSONValue<+A>);
 
 %flag A;
 
-JSONText {bool b} -> JSONText :
-    JSONValue<+A>[val] { $$ = $val; } ;
+JSONText -> JSONText :
+    JSONValue<+A> ;
 
-JSONValue<A> {int a} -> JSONValue :
+JSONValue<A> -> JSONValue :
     kw_null
   | 'true'
-  | 'false'    { $$ = 5; }
+  | 'false'
   | [A] 'A'
   | [!A] 'B'
   | JSONObject
-  | EmptyObject
+  | JSONEmptyObject
   | JSONArray
   | JSONString
   | JSONNumber
 ;
 
-EmptyObject -> EmptyObject : (?= EmptyObject) '{' '}' { @$.begin = @1.begin; } ;
+JSONEmptyObject -> JSONEmptyObject : (?= JSONEmptyObject) '{' '}' { @$.begin = @1.begin; } ;
 
 JSONObject -> JSONObject/Foo :
-    (?= !EmptyObject) '{' JSONMemberList? '}' { @$.begin = @1.begin; } ;
+    (?= !JSONEmptyObject) '{' JSONMemberList? '}' { @$.begin = @1.begin; } ;
 
-JSONMember {int c} -> JSONMember/Foo :
-    JSONString ':'[b] { LOG(INFO) << @b.begin; } JSONValue<~A> { $$ = a; }
+JSONMember -> JSONMember/Foo :
+    JSONString ':'[b] { LOG(INFO) << @b.begin; } JSONValue<~A>
   | error -> SyntaxProblem
 ;
 
-JSONMemberList {bool d}:
-    JSONMember  { $$ = b; }
+JSONMemberList:
+    JSONMember
   | JSONMemberList .foo ',' JSONMember
 ;
 
