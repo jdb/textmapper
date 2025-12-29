@@ -1,6 +1,14 @@
 {{ template "header" . -}}
 #include "{{.Options.FilenamePrefix}}lexer.h"
+#include "{{.Options.FilenamePrefix}}parser.h"
 #include "{{.Options.FilenamePrefix}}token.h"
+{{ if .Options.EventAST -}}
+#include "{{.Options.FilenamePrefix}}ast/tree.h"
+#include "{{.Options.FilenamePrefix}}ast/parse.h"
+{{ if .Options.GenSelector -}}
+#include "{{.Options.FilenamePrefix}}selector/selector.h"
+{{ end -}}
+{{ end -}}
 
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
@@ -77,6 +85,153 @@ struct Location {
   Location(int64_t b = 0, int64_t e = 0) : begin(b), end(e) {}
 };
 
+// Status wrapper for Python
+struct StatusWrapper {
+  absl::Status status;
+  
+  StatusWrapper(absl::Status s) : status(std::move(s)) {}
+  
+  bool ok() const { return status.ok(); }
+  std::string message() const { return std::string(status.message()); }
+};
+
+// Parser wrapper that handles Python callbacks
+struct ParserWrapper {
+  std::function<void(NodeType, int, Location)> listener;
+  std::function<bool(StatusWrapper)> error_handler;
+{{- range .Options.ParseParams}}
+  {{.}}_val;
+{{- end}}
+  // Store callbacks as member variables to keep them alive for absl::FunctionRef
+  std::function<void(NodeType, {{if or .Parser.UsedFlags .Lexer.UsedFlags}}NodeFlags, {{end}}Lexer::Location)> listener_adapter;
+  std::function<bool(absl::Status)> error_adapter;
+  std::unique_ptr<Parser> parser;
+  
+  ParserWrapper(
+      std::function<void(NodeType, int, Location)> listener_func,
+      std::function<bool(StatusWrapper)> error_handler_func,
+      bool byteLocation{{- range .Options.ParseParams}},
+      {{.}}_arg{{- end}})
+    : listener(std::move(listener_func)),
+      error_handler(std::move(error_handler_func)){{- range .Options.ParseParams}},
+      {{last_id .}}_val({{last_id .}}_arg){{- end}} {
+    // Create adapter callbacks and store them as members
+    // Convert NodeFlags to int to handle bitfield combinations
+    listener_adapter = [this](NodeType node, {{if or .Parser.UsedFlags .Lexer.UsedFlags}}NodeFlags flags, {{end}}Lexer::Location loc) {
+      Location py_loc{loc.begin, loc.end};
+      listener(node, {{if or .Parser.UsedFlags .Lexer.UsedFlags}}static_cast<int>(flags){{else}}0{{end}}, py_loc);
+    };
+    
+    error_adapter = [this](absl::Status status) -> bool {
+      StatusWrapper wrapped_status(std::move(status));
+      return error_handler(wrapped_status);
+    };
+    
+    parser = std::make_unique<Parser>(
+        listener_adapter,
+        error_adapter,
+        byteLocation{{- range .Options.ParseParams}},
+        {{last_id .}}_val{{- end}});
+  }
+  
+  StatusWrapper parse(LexerWrapper& lexer_wrapper) {
+    return StatusWrapper(parser->Parse(lexer_wrapper.lexer));
+  }
+};
+
+// Bind NodeType enum
+void bind_node_type(nb::module_ &m) {
+  nb::enum_<NodeType>(m, "NodeType")
+      .value("NoType", NodeType::NoType)
+{{- range .Parser.Types.RangeTypes}}
+      .value("{{.Name}}", NodeType::{{.Name}})
+{{- end}}
+{{- range .Options.ExtraTypes}}
+      .value("{{.Name}}", NodeType::{{.Name}})
+{{- end}}
+      .value("NodeTypeMax", NodeType::NodeTypeMax);
+}
+
+{{ $flags := .AllFlags -}}
+{{ if $flags -}}
+// Bind NodeFlags enum (bitfield flags)
+void bind_node_flags(nb::module_ &m) {
+  nb::enum_<NodeFlags>(m, "NodeFlags", nb::is_arithmetic())
+      .value("None", NodeFlags::None)
+{{- range $flags}}
+      .value("{{.}}", NodeFlags::{{.}})
+{{- end}}
+      ;
+}
+{{ end -}}
+
+// Bind Parser class
+void bind_parser(nb::module_ &m) {
+  nb::class_<Location>(m, "Location")
+      .def(nb::init<int64_t, int64_t>(), "begin"_a = 0, "end"_a = 0)
+      .def_ro("begin", &Location::begin)
+      .def_ro("end", &Location::end);
+  
+  nb::class_<StatusWrapper>(m, "Status")
+      .def_prop_ro("ok", &StatusWrapper::ok)
+      .def_prop_ro("message", &StatusWrapper::message);
+  
+  nb::class_<ParserWrapper>(m, "Parser")
+      .def(nb::init<
+          std::function<void(NodeType, int, Location)>,
+          std::function<bool(StatusWrapper)>,
+          bool{{- range $i, $p := .Options.ParseParams}},
+          {{cc_type_from_param $p}}{{end}}>(),
+          "listener"_a, "error_handler"_a, "byteLocation"_a = false{{- range $i, $p := .Options.ParseParams}}, "{{last_id $p}}"_a{{end}})
+      .def("parse", &ParserWrapper::parse, "lexer"_a);
+}
+{{ end -}}
+
+{{ if .Options.EventAST -}}
+// Bind Tree and Node classes, and parse function
+void bind_ast(nb::module_ &m) {
+  // Bind Node class
+  nb::class_<Node>(m, "Node")
+      .def_prop_ro("type", &Node::Type)
+      .def("offset", &Node::Offset, "Returns the start offset of the node")
+      .def("endoffset", &Node::Endoffset, "Returns the end offset of the node")
+      .def("is_valid", &Node::IsValid, "Checks if the node is valid")
+      .def("get_tree", &Node::GetTree, "Returns the tree containing this node", nb::rv_policy::reference_internal)
+      .def("line_column", &Node::LineColumn, "Returns the start position as (line, column)")
+      .def("text", &Node::Text, "Returns the text content of the node")
+{{ if .Options.GenSelector -}}
+      .def("child", [](const Node& n, Selector sel) { return n.Child(sel); }, "sel"_a, "Returns the first child matching the selector", nb::rv_policy::reference_internal)
+      .def("children", [](const Node& n, Selector sel) { return n.Children(sel); }, "sel"_a, "Returns all children matching the selector")
+      .def("next", [](const Node& n, Selector sel) { return n.Next(sel); }, "sel"_a, "Returns the first right sibling matching the selector", nb::rv_policy::reference_internal)
+      .def("next_all", [](const Node& n, Selector sel) { return n.NextAll(sel); }, "sel"_a, "Returns all right siblings matching the selector")
+{{ end -}}
+      ;
+  
+  // Bind Tree class (non-copyable, return by value with move semantics)
+  nb::class_<Tree>(m, "Tree")
+      .def_prop_ro("path", &Tree::Path, "Returns the location of the parsed content")
+      .def_prop_ro("root", &Tree::Root, "Returns the root node", nb::rv_policy::reference_internal)
+      .def_prop_ro("text", &Tree::Text, "Returns the parsed content")
+      .def("line_column", &Tree::LineColumn, "offset"_a, "Returns the position as (line, column) for the given offset")
+      ;
+  
+  // Bind parse function (with path and content)
+{{ if .Parser.IsRecovering -}}
+  using ErrorHandler = std::function<bool(StatusWrapper)>;
+  m.def("parse", [](const std::string& content, ErrorHandler eh) {
+    auto error_handler = [eh](absl::Status status) -> bool {
+      return eh(StatusWrapper(status));
+    };
+    return Parse("", content, error_handler);
+  }, "content"_a, "error_handler"_a, "Parse {{.Name}} input and return an AST Tree", nb::rv_policy::move);
+{{ else -}}
+  m.def("parse", [](const std::string& content) {
+    return Parse("", content);
+  }, "content"_a, "Parse {{.Name}} input and return an AST Tree", nb::rv_policy::move);
+{{ end -}}
+}
+{{ end -}}
+
 }  // namespace {{.Options.Namespace}}
 
 NB_MODULE(nblexer, m) {
@@ -87,5 +242,15 @@ NB_MODULE(nblexer, m) {
   {{.Options.Namespace}}::bind_state(m);
 {{ end -}}
   {{.Options.Namespace}}::bind_lexer(m);
+{{ if .Parser.Types -}}
+  {{.Options.Namespace}}::bind_node_type(m);
+{{- if or .Parser.UsedFlags .Lexer.UsedFlags }}
+  {{.Options.Namespace}}::bind_node_flags(m);
+{{- end }}
+  {{.Options.Namespace}}::bind_parser(m);
+{{- end }}
+{{- if .Options.EventAST }}
+  {{.Options.Namespace}}::bind_ast(m);
+{{- end }}
 }
 

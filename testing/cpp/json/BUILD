@@ -1,4 +1,4 @@
-package(default_visibility = ["//visibility:private"])
+package(default_visibility = ["//visibility:public"])
 
 cc_library(
     name = "lexer",
@@ -37,10 +37,21 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "ast",
+    deps = [
+        ":lexer",
+        ":parser",
+        "//cpp/json/json_ast:parse",
+        "//cpp/json/json_ast:selector",
+        "@abseil-cpp//absl/strings",
+    ],
+)
+
 cc_test(
     name = "parser_test",
     size = "small",
-    srcs = ["parser_test.cc"],
+    srcs = ["json_parser_test.cc"],
     deps = [
         ":lexer",
         ":parser",
@@ -162,6 +173,20 @@ py_wheel(
 py_test(
     name = "json_lexer_test",
     srcs = ["json_lexer_test.py"],
+    deps = [
+        ":nbjson_wheel_lib",  # Use the wheel structure instead of direct nblexer
+        "//cpp/markup:markup_py",  # Python markup module
+        "@rules_python//python/runfiles",  # For runfiles access
+    ],
+    python_version = "PY3",
+    size = "small",
+    imports = [".."],  # Add cpp/ to path so markup module is accessible
+)
+
+# Python test for the parser
+py_test(
+    name = "json_parser_test",
+    srcs = ["json_parser_test.py"],
     deps = [
         ":nbjson_wheel_lib",  # Use the wheel structure instead of direct nblexer
         "//cpp/markup:markup_py",  # Python markup module
