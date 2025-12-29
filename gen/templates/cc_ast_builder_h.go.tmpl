@@ -1,0 +1,40 @@
+{{ template "header" . -}}
+#ifndef {{.Options.IncludeGuardPrefix}}AST_BUILDER_H_
+#define {{.Options.IncludeGuardPrefix}}AST_BUILDER_H_
+
+#include <memory>
+#include <string>
+
+#include "tree.h"
+{{ if $.Options.TokenStream -}}
+#include "../{{.Options.FilenamePrefix}}stream.h"
+{{ else -}}
+#include "../{{.Options.FilenamePrefix}}lexer.h"
+{{ end -}}
+#include "../{{.Options.FilenamePrefix}}parser.h"
+#include "absl/functional/function_ref.h"
+#include "absl/status/status.h"
+
+namespace {{.Options.Namespace}} {
+
+// Parse parses a given utf-8 content into an AST.
+Tree Parse(const std::string& path, const std::string& content{{if .Parser.IsRecovering }}, absl::FunctionRef<bool(absl::Status)> error_handler{{end}});
+
+// Convenience overload that parses content with an empty path.
+inline Tree Parse(const std::string& content{{if .Parser.IsRecovering }}, absl::FunctionRef<bool(absl::Status)> error_handler{{end}}) {
+  return Parse("", content{{if .Parser.IsRecovering }}, error_handler{{end}});
+}
+
+{{ if .Parser.IsRecovering -}}
+// Convenience overload that parses content with default error handler (always recovers).
+inline Tree Parse(const std::string& content) {
+  auto error_handler = [](absl::Status) -> bool { return true; };
+  return Parse("", content, error_handler);
+}
+{{ end -}}
+
+}  // namespace {{.Options.Namespace}}
+
+#endif  // {{.Options.IncludeGuardPrefix}}AST_BUILDER_H_
+
+

@@ -5,6 +5,9 @@
 
 {{ block "parserHeaderIncludes" . -}}
 #include <array>
+{{ if .Parser.IsRecovering -}}
+#include <bitset>
+{{ end -}}
 #include <cstdint>
 #include <ostream>
 #include <string>
@@ -133,8 +136,9 @@ class Parser final {
  public:
 {{ if .Parser.Types -}}
   template <typename Listener>
-  explicit Parser(Listener&& listener{{if .Parser.IsRecovering}}, absl::FunctionRef<bool(absl::Status)> error_handler{{end}}{{ range .Options.ParseParams}}, {{.}}_arg{{end}})
-      : listener_(std::forward<Listener>(listener)){{if .Parser.IsRecovering}}, error_handler_(error_handler){{end}}{{ range .Options.ParseParams}}, {{$id := last_id .}}{{$id}}({{$id}}_arg){{end}} {
+  explicit Parser(Listener&& listener{{if .Parser.IsRecovering}}, absl::FunctionRef<bool(absl::Status)> error_handler{{end}}, bool byteLocation{{ range .Options.ParseParams}}, {{.}}_arg{{end}})
+      : listener_(std::forward<Listener>(listener)){{if .Parser.IsRecovering}}, error_handler_(error_handler){{end}}{{ range .Options.ParseParams}}, {{$id := last_id .}}{{$id}}({{$id}}_arg){{end}},
+        use_byte_location_(byteLocation) {
 {{ if .ReportTokens true -}}
     pending_symbols_.reserve(startTokenBufferSize);
 {{ end -}}
@@ -197,6 +201,7 @@ class Parser final {
 {{- if .Parser.IsRecovering }}
 	int{{$stateType}}_t end_state_ = 0;
 {{- end}}
+  bool use_byte_location_;  // If true, use byte offsets; if false, use rune offsets
 {{block "parserPrivateDecls" .}}{{end -}}
 
   friend std::ostream& operator<<(std::ostream& os, const Parser& parser) {

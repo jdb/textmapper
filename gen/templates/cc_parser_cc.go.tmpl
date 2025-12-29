@@ -680,7 +680,7 @@ void Parser::fetchNext(Lexer& lexer, std::vector<stackEntry>& stack) {
     case Token::{{.ID}}:
 {{ end -}}
       pending_symbols_.push_back(symbol{static_cast<int32_t>(tok),
-                                      lexer.LastTokenLocation()});
+                                      use_byte_location_ ? lexer.LastTokenLocation() : Lexer::Location(lexer.token_offset_rune_, lexer.offset_rune_)});
       continue;
 {{ end -}}
 {{ if not .ReportsInvalidToken -}}
@@ -695,7 +695,7 @@ void Parser::fetchNext(Lexer& lexer, std::vector<stackEntry>& stack) {
 {{end -}}
 
   next_symbol_.symbol = static_cast<int32_t>(tok);
-  next_symbol_.location = lexer.LastTokenLocation();
+  next_symbol_.location = use_byte_location_ ? lexer.LastTokenLocation() : Lexer::Location(lexer.token_offset_rune_, lexer.offset_rune_);
 {{ block "onAfterFetchNext" .}}{{end -}}
 }
 
@@ -836,9 +836,10 @@ absl::Status Parser::Parse(int{{$stateType}}_t start, int{{$stateType}}_t end,
   // The location in this stackEntry will be used for any leading non-terminal
   // symbols satsified by %empty, so it needs to be initialized. We initialize
   // it to the start location of the first token.
+  auto initial_loc = use_byte_location_ ? lexer.LastTokenLocation() : Lexer::Location(lexer.token_offset_rune_, lexer.offset_rune_);
   stack.back().sym.location =
-      Lexer::Location(lexer.LastTokenLocation(){{template "locStart"}},
-                      lexer.LastTokenLocation(){{template "locStart"}});
+      Lexer::Location(initial_loc{{template "locStart"}},
+                      initial_loc{{template "locStart"}});
 
   while (state != end) {
     int32_t action = tmAction[state];

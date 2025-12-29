@@ -6,33 +6,32 @@
 #include <string>
 #include <unordered_set>
 
-#include "absl/strings/str_format.h"
 #include "json_lexer.h"
+#include "absl/strings/str_format.h"
+
 
 namespace json {
 [[maybe_unused]] constexpr int8_t fooState = 27;
 
 std::unordered_set<int8_t> barStates = {
-    0,
-    2,
-    20,
-    32,
+	0, 2, 20, 32,
 };
 
+
 constexpr inline absl::string_view tmNonterminals[] = {
-    "JSONText",
-    "JSONValue",
-    "JSONValue_A",
-    "EmptyObject",
-    "lookahead_EmptyObject",
-    "JSONObject",
-    "lookahead_notEmptyObject",
-    "JSONMember",
-    "JSONMemberList",
-    "JSONArray",
-    "JSONElementList",
-    "JSONElementListopt",
-    "JSONMember$1",
+  "JSONText",
+  "JSONValue",
+  "JSONValue_A",
+  "JSONEmptyObject",
+  "lookahead_JSONEmptyObject",
+  "JSONObject",
+  "lookahead_notJSONEmptyObject",
+  "JSONMember",
+  "JSONMemberList",
+  "JSONArray",
+  "JSONElementList",
+  "JSONElementListopt",
+  "JSONMember$1",
 };
 constexpr size_t tmNonterminalsLen =
     sizeof(tmNonterminals) / sizeof(tmNonterminals[0]);
@@ -53,123 +52,108 @@ std::string symbolName(int32_t sym) {
 }
 
 constexpr int32_t tmDefGoto[] = {
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 };
 
 constexpr int32_t tmGoto[] = {
-    37, 27, 54, 4, 19, 33, 38, 31, 24, 47, 59, 62, 40,
+	37, 27, 54, 4, 19, 33, 38, 31, 24, 47, 59, 62, 40,
 };
 
 constexpr int32_t tmDefAct[] = {
-    -1, 20, -1, 17, 18, 10, 11, 12, 13, 0,  15, -1, 14, -1, 16, 29,
-    -1, -1, -1, -1, -1, 28, 19, 22, -1, 25, 26, -1, 30, 33, 21, -1,
-    -1, 27, 8,  9,  1,  2,  3,  4,  24, 6,  5,  7,  -1, -1, -1,
+	-1, 20, -1, 17, 18, 10, 11, 12, 13, 0, 15, -1, 14, -1, 16, 29, -1, -1, -1,
+	-1, -1, 28, 19, 22, -1, 25, 26, -1, 30, 33, 21, -1, -1, 27, 8, 9, 1, 2, 3, 4,
+	24, 6, 5, 7, -1, -1, -1,
 };
 
 constexpr int32_t tmActionBase = -20;
 
 constexpr int32_t tmAction[] = {
-    14,  -20, -2,  -20, -20, -20, -20, -20, -20, -20, -20, -1,
-    -20, 5,   -20, -20, 50,  3,   8,   49,  14,  -20, -20, -20,
-    11,  -20, -20, 20,  -20, -20, -20, 52,  30,  -20, -20, -20,
-    -20, -20, -20, -20, -20, -20, -20, -20, 22,  -20, -20,
+	14, -20, -2, -20, -20, -20, -20, -20, -20, -20, -20, -1, -20, 5, -20, -20,
+	50, 3, 8, 49, 14, -20, -20, -20, 11, -20, -20, 20, -20, -20, -20, 52, 30,
+	-20, -20, -20, -20, -20, -20, -20, -20, -20, -20, -20, 22, -20, -20,
 };
 
 constexpr int32_t tmTableLen = 80;
 
 constexpr int8_t tmTable[] = {
-    34,  -20, -4, 32, 10,  45, 10,  -21, -23, -5,  -6,  -24, -7,  -8,  -9,  -10,
-    34,  -31, -4, 11, 11,  11, -48, -32, 10,  -5,  -6,  -33, -7,  -8,  -9,  -10,
-    34,  12,  -4, 12, 41,  44, 13,  11,  13,  -36, -37, 27,  -38, -39, -40, 14,
-    -41, 14,  26, 11, -25, 12, 9,   31,  15,  -22, 13,  40,  -26, 16,  33,  -26,
-    17,  42,  0,  14, -27, 32, 13,  -27, 0,   0,   28,  0,   0,   0,   0,   43,
+	34, -20, -4, 32, 10, 45, 10, -21, -23, -5, -6, -24, -7, -8, -9, -10, 34, -31,
+	-4, 11, 11, 11, -48, -32, 10, -5, -6, -33, -7, -8, -9, -10, 34, 12, -4, 12,
+	41, 44, 13, 11, 13, -36, -37, 27, -38, -39, -40, 14, -41, 14, 26, 11, -25,
+	12, 9, 31, 15, -22, 13, 40, -26, 16, 33, -26, 17, 42, 0, 14, -27, 32, 13,
+	-27, 0, 0, 28, 0, 0, 0, 0, 43,
 };
 
 constexpr int8_t tmCheck[] = {
-    2,  2,  4,  5,  0,  1,  2,  2,  5,  11, 12, 3,  14, 15, 16, 17,
-    2,  6,  4,  0,  1,  2,  0,  3,  20, 11, 12, 7,  14, 15, 16, 17,
-    2,  0,  4,  2,  32, 0,  0,  20, 2,  11, 12, 19, 14, 15, 16, 0,
-    18, 2,  19, 32, 3,  20, 0,  5,  2,  7,  20, 32, 11, 2,  31, 11,
-    2,  32, -1, 20, 19, 29, 32, 19, -1, -1, 20, -1, -1, -1, -1, 32,
+	2, 2, 4, 5, 0, 1, 2, 2, 5, 11, 12, 3, 14, 15, 16, 17, 2, 6, 4, 0, 1, 2, 0, 3,
+	20, 11, 12, 7, 14, 15, 16, 17, 2, 0, 4, 2, 32, 0, 0, 20, 2, 11, 12, 19, 14,
+	15, 16, 0, 18, 2, 19, 32, 3, 20, 0, 5, 2, 7, 20, 32, 11, 2, 31, 11, 2, 32,
+	-1, 20, 19, 29, 32, 19, -1, -1, 20, -1, -1, -1, -1, 32,
 };
 
 constexpr int8_t tmRuleLen[] = {
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 3, 0, 4, 3, 0, 4, 1, 1, 3, 3, 1, 3, 1, 0, 0, 0,
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3, 0, 4, 3, 0, 4, 1,
+	1, 3, 3, 1, 3, 1, 0, 0, 0,
 };
 
 constexpr int32_t tmRuleSymbol[] = {
-    20, 21, 21, 21, 21, 21, 21, 21, 21, 21, 22, 22, 22, 22, 22, 22, 22, 22,
-    22, 23, 24, 25, 25, 26, 27, 27, 28, 28, 29, 30, 30, 31, 31, 32, 26,
+	20, 21, 21, 21, 21, 21, 21, 21, 21, 21, 22, 22, 22, 22, 22, 22, 22, 22, 22,
+	23, 24, 25, 25, 26, 27, 27, 28, 28, 29, 30, 30, 31, 31, 32, 26,
 };
 
 constexpr uint32_t tmRuleType[] = {
-    static_cast<uint32_t>(NodeType::JSONText),   // JSONText : JSONValue_A
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue : kw_null
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue : 'true'
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue : 'false'
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue : 'B'
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue : JSONObject
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue : EmptyObject
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue : JSONArray
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue : JSONString
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue : JSONNumber
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue_A : kw_null
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue_A : 'true'
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue_A : 'false'
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue_A : 'A'
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue_A : JSONObject
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue_A : EmptyObject
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue_A : JSONArray
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue_A : JSONString
-    static_cast<uint32_t>(NodeType::JSONValue),  // JSONValue_A : JSONNumber
-    static_cast<uint32_t>(
-        NodeType::EmptyObject),  // EmptyObject : lookahead_EmptyObject '{' '}'
-    0,                           // lookahead_EmptyObject :
-    static_cast<uint32_t>(NodeType::JSONObject) +
-        (static_cast<uint32_t>(NodeFlags::Foo)
-         << 16),  // JSONObject : lookahead_notEmptyObject '{' JSONMemberList
-                  // '}'
-    static_cast<uint32_t>(NodeType::JSONObject) +
-        (static_cast<uint32_t>(NodeFlags::Foo)
-         << 16),  // JSONObject : lookahead_notEmptyObject '{' '}'
-    0,            // lookahead_notEmptyObject :
-    static_cast<uint32_t>(NodeType::JSONMember) +
-        (static_cast<uint32_t>(NodeFlags::Foo)
-         << 16),  // JSONMember : JSONString ':' JSONMember$1 JSONValue
-    static_cast<uint32_t>(NodeType::SyntaxProblem),  // JSONMember : error
-    0,  // JSONMemberList : JSONMember
-    0,  // JSONMemberList : JSONMemberList .foo ',' JSONMember
-    static_cast<uint32_t>(NodeType::JSONArray) +
-        (static_cast<uint32_t>(NodeFlags::Foo)
-         << 16),  // JSONArray : .bar '[' JSONElementListopt ']'
-    0,            // JSONElementList : JSONValue_A
-    0,            // JSONElementList : JSONElementList ',' JSONValue_A
-    0,            // JSONElementListopt : JSONElementList
-    0,            // JSONElementListopt :
-    0,            // JSONMember$1 :
+  static_cast<uint32_t>(NodeType::JSONText), // JSONText : JSONValue_A
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue : kw_null
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue : 'true'
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue : 'false'
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue : 'B'
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue : JSONObject
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue : JSONEmptyObject
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue : JSONArray
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue : JSONString
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue : JSONNumber
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue_A : kw_null
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue_A : 'true'
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue_A : 'false'
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue_A : 'A'
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue_A : JSONObject
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue_A : JSONEmptyObject
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue_A : JSONArray
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue_A : JSONString
+  static_cast<uint32_t>(NodeType::JSONValue), // JSONValue_A : JSONNumber
+  static_cast<uint32_t>(NodeType::JSONEmptyObject), // JSONEmptyObject : lookahead_JSONEmptyObject '{' '}'
+  0, // lookahead_JSONEmptyObject :
+  static_cast<uint32_t>(NodeType::JSONObject) + (static_cast<uint32_t>(NodeFlags::Foo)<<16), // JSONObject : lookahead_notJSONEmptyObject '{' JSONMemberList '}'
+  static_cast<uint32_t>(NodeType::JSONObject) + (static_cast<uint32_t>(NodeFlags::Foo)<<16), // JSONObject : lookahead_notJSONEmptyObject '{' '}'
+  0, // lookahead_notJSONEmptyObject :
+  static_cast<uint32_t>(NodeType::JSONMember) + (static_cast<uint32_t>(NodeFlags::Foo)<<16), // JSONMember : JSONString ':' JSONMember$1 JSONValue
+  static_cast<uint32_t>(NodeType::SyntaxProblem), // JSONMember : error
+  0, // JSONMemberList : JSONMember
+  0, // JSONMemberList : JSONMemberList .foo ',' JSONMember
+  static_cast<uint32_t>(NodeType::JSONArray) + (static_cast<uint32_t>(NodeFlags::Foo)<<16), // JSONArray : .bar '[' JSONElementListopt ']'
+  0, // JSONElementList : JSONValue_A
+  0, // JSONElementList : JSONElementList ',' JSONValue_A
+  0, // JSONElementListopt : JSONElementList
+  0, // JSONElementListopt :
+  0, // JSONMember$1 :
 };
 
-// set(first JSONValue_A) = LBRACE, LBRACK, JSONSTRING, JSONNUMBER, KW_NULL,
-// TRUE, FALSE, CHAR_A
+// set(first JSONValue_A) = LBRACE, LBRACK, JSONSTRING, JSONNUMBER, KW_NULL, TRUE, FALSE, CHAR_A
 [[maybe_unused]] constexpr int32_t Literals[] = {
-    2, 4, 11, 12, 14, 15, 16, 17,
+	2, 4, 11, 12, 14, 15, 16, 17,
 };
 
 // set(follow ERROR) = RBRACE, COMMA
 [[maybe_unused]] constexpr int32_t afterErr[] = {
-    3,
-    7,
+	3, 7,
 };
 
 int8_t gotoState(int8_t state, int32_t symbol) {
   if (symbol >= static_cast<int32_t>(Token::NumTokens)) {
-    int32_t pos =
-        tmGoto[symbol - static_cast<int32_t>(Token::NumTokens)] + state;
+    int32_t pos = tmGoto[symbol-static_cast<int32_t>(Token::NumTokens)] + state;
     if (pos >= 0 && pos < tmTableLen && tmCheck[pos] == state) {
       return tmTable[pos];
     }
-    return tmDefGoto[symbol - static_cast<int32_t>(Token::NumTokens)];
+    return tmDefGoto[symbol-static_cast<int32_t>(Token::NumTokens)];
   }
 
   // Shifting a token.
@@ -184,7 +168,7 @@ int8_t gotoState(int8_t state, int32_t symbol) {
     action = tmDefAct[state];
   }
   if (action < -1) {
-    return -2 - action;
+    return -2-action;
   }
   return -1;
 }
@@ -194,17 +178,18 @@ ABSL_MUST_USE_RESULT int32_t lookaheadNext(Lexer& lexer) {
 restart:
   tok = lexer.Next();
   switch (tok) {
-    case Token::MULTILINECOMMENT:
-    case Token::INVALID_TOKEN:
-      goto restart;
-    default:
-      break;
+  case Token::MULTILINECOMMENT:
+  case Token::INVALID_TOKEN:
+    goto restart;
+  default:
+    break;
   }
   return static_cast<int32_t>(tok);
 }
 
 ABSL_MUST_USE_RESULT bool lookahead(Lexer& lexer_to_copy, int32_t next,
-                                    int8_t start, int8_t end) {
+                                    int8_t start,
+                                    int8_t end) {
   Lexer lexer = lexer_to_copy;
 
   std::vector<stackEntry> stack;
@@ -246,7 +231,7 @@ ABSL_MUST_USE_RESULT bool lookahead(Lexer& lexer_to_copy, int32_t next,
       stack.push_back(std::move(entry));
     } else if (action < -1) {
       // Shift.
-      state = -2 - action;
+      state = -2-action;
       stack.push_back(stackEntry{
           .sym = symbol{.symbol = next},
           .state = state,
@@ -271,9 +256,9 @@ ABSL_MUST_USE_RESULT bool lookahead(Lexer& lexer_to_copy, int32_t next,
   return state == end;
 }
 
-ABSL_MUST_USE_RESULT bool AtEmptyObject(Lexer& lexer, int32_t next) {
+ABSL_MUST_USE_RESULT bool AtJSONEmptyObject(Lexer& lexer, int32_t next) {
   if (debugSyntax) {
-    LOG(INFO) << "lookahead EmptyObject; next: " << symbolName(next);
+    LOG(INFO) << "lookahead JSONEmptyObject; next: " << symbolName(next);
   }
   return lookahead(lexer, next, 1, 45);
 }
@@ -282,15 +267,15 @@ void Parser::reportIgnoredToken(symbol sym) {
   NodeType t = NodeType::NoType;
   NodeFlags flags = NodeFlags::None;
   switch (Token(sym.symbol)) {
-    case Token::MULTILINECOMMENT:
-      t = NodeType::MultiLineComment;
-      flags = static_cast<NodeFlags>(NodeFlags::Bar | NodeFlags::Foo);
-      break;
-    case Token::INVALID_TOKEN:
-      t = NodeType::InvalidToken;
-      break;
-    default:
-      return;
+  case Token::MULTILINECOMMENT:
+    t = NodeType::MultiLineComment;
+    flags = static_cast<NodeFlags>(NodeFlags::Bar | NodeFlags::Foo);
+    break;
+  case Token::INVALID_TOKEN:
+    t = NodeType::InvalidToken;
+    break;
+  default:
+    return;
   }
   if (debugSyntax) {
     LOG(INFO) << "ignored: " << Token(sym.symbol) << " as " << t;
@@ -298,8 +283,7 @@ void Parser::reportIgnoredToken(symbol sym) {
   listener_(t, flags, sym.location);
 }
 
-bool Parser::willShift(int32_t symbol, std::vector<stackEntry>& stack, int size,
-                       int8_t state) {
+bool Parser::willShift(int32_t symbol, std::vector<stackEntry>& stack, int size, int8_t state) {
   if (state == -1) {
     return false;
   }
@@ -327,11 +311,11 @@ bool Parser::willShift(int32_t symbol, std::vector<stackEntry>& stack, int size,
 
       if (ln > 0) {
         if (ln < stack2.size()) {
-          state = stack2[stack2.size() - ln - 1];
+          state = stack2[stack2.size()-ln-1];
           stack2.resize(stack2.size() - ln);
         } else {
           size -= ln - stack2.size();
-          state = stack[size - 1].state;
+          state = stack[size-1].state;
           stack2.clear();
         }
       }
@@ -344,30 +328,26 @@ bool Parser::willShift(int32_t symbol, std::vector<stackEntry>& stack, int size,
   return symbol == eoiToken;
 }
 
-int64_t Parser::skipBrokenCode(
-    Lexer& lexer, std::vector<stackEntry>& stack,
-    std::bitset<static_cast<size_t>(Token::NumTokens)>& recover_tokens) {
+int64_t Parser::skipBrokenCode(Lexer& lexer, std::vector<stackEntry>& stack, std::bitset<static_cast<size_t>(Token::NumTokens)>& recover_tokens) {
   int64_t ret = 0;
-  while (next_symbol_.symbol != eoiToken &&
-         !recover_tokens[next_symbol_.symbol]) {
+  while (next_symbol_.symbol != eoiToken && !recover_tokens[next_symbol_.symbol]) {
     if (debugSyntax) {
-      LOG(INFO) << "skipped while recovering: "
-                << symbolName(next_symbol_.symbol) << " (" << lexer.Text()
-                << ")";
+      LOG(INFO) << "skipped while recovering: " << symbolName(next_symbol_.symbol) << " ("
+            << lexer.Text() << ")";
     }
-    if (!pending_symbols_.empty()) {
-      for (const auto& tok : pending_symbols_) {
-        reportIgnoredToken(tok);
-      }
-      pending_symbols_.clear();
+  if (!pending_symbols_.empty()) {
+    for (const auto& tok : pending_symbols_) {
+      reportIgnoredToken(tok);
     }
-    switch (Token(next_symbol_.symbol)) {
-      case Token::JSONSTRING:
-        listener_(NodeType::JsonString, NodeFlags::None, next_symbol_.location);
-        break;
-      default:
-        break;
-    }
+    pending_symbols_.clear();
+  }
+  switch (Token(next_symbol_.symbol)) {
+  case Token::JSONSTRING:
+    listener_(NodeType::JSONString, NodeFlags::None, next_symbol_.location);
+    break;
+    default:
+      break;
+  }
     ret = next_symbol_.location.end;
     fetchNext(lexer, stack);
   }
@@ -380,11 +360,11 @@ bool Parser::recoverFromError(Lexer& lexer, std::vector<stackEntry>& stack) {
 
   if (debugSyntax) {
     LOG(INFO) << "broke at " << symbolName(next_symbol_.symbol) << " ("
-              << lexer.Text() << ")";
+            << lexer.Text() << ")";
   }
 
   for (size_t size = stack.size(); size > 0; size--) {
-    if (gotoState(stack[size - 1].state, errSymbol) == -1) {
+    if (gotoState(stack[size-1].state, errSymbol) == -1) {
       continue;
     }
     recover_pos.push_back(size);
@@ -422,8 +402,7 @@ bool Parser::recoverFromError(Lexer& lexer, std::vector<stackEntry>& stack) {
       LOG(INFO) << "trying to recover on " << symbolName(next_symbol_.symbol);
     }
     for (int pos : recover_pos) {
-      if (willShift(next_symbol_.symbol, stack, pos,
-                    gotoState(stack[pos - 1].state, errSymbol))) {
+      if (willShift(next_symbol_.symbol, stack, pos, gotoState(stack[pos-1].state, errSymbol))) {
         matching_pos = pos;
         break;
       }
@@ -452,8 +431,7 @@ bool Parser::recoverFromError(Lexer& lexer, std::vector<stackEntry>& stack) {
     if (begin != end) {
       // Consume trailing invalid tokens.
       for (const auto& tok : pending_symbols_) {
-        if (Token(tok.symbol) == Token::INVALID_TOKEN &&
-            tok.location.end > end) {
+        if (Token(tok.symbol) == Token::INVALID_TOKEN && tok.location.end > end) {
           end = tok.location.end;
         }
       }
@@ -465,23 +443,21 @@ bool Parser::recoverFromError(Lexer& lexer, std::vector<stackEntry>& stack) {
         }
         reportIgnoredToken(tok);
       }
-      pending_symbols_.erase(pending_symbols_.begin(),
-                             pending_symbols_.begin() + consumed);
+      pending_symbols_.erase(pending_symbols_.begin(), pending_symbols_.begin() + consumed);
     }
     if (debugSyntax) {
-      for (int i = stack.size() - 1; i >= matching_pos; i--) {
+      for (int i = stack.size()-1; i >= matching_pos; i--) {
         LOG(INFO) << "dropped from stack: " << symbolName(stack[i].sym.symbol);
       }
       LOG(INFO) << "recovered";
     }
     stack.resize(matching_pos);
     stack.push_back(stackEntry{
-        .sym =
-            symbol{
-                .symbol = errSymbol,
-                .location = Lexer::Location(begin, end),
-            },
-        .state = gotoState(stack[matching_pos - 1].state, errSymbol),
+      .sym =  symbol{
+        .symbol = errSymbol,
+        .location = Lexer::Location(begin, end),
+      },
+      .state = gotoState(stack[matching_pos-1].state, errSymbol),
     });
     return true;
   }
@@ -492,172 +468,94 @@ void Parser::fetchNext(Lexer& lexer, std::vector<stackEntry>& stack) {
   for (;;) {
     tok = lexer.Next();
     switch (tok) {
-      case Token::MULTILINECOMMENT:
-      case Token::INVALID_TOKEN:
-        pending_symbols_.push_back(
-            symbol{static_cast<int32_t>(tok), lexer.LastTokenLocation()});
-        continue;
-      default:
-        break;
+    case Token::MULTILINECOMMENT:
+    case Token::INVALID_TOKEN:
+      pending_symbols_.push_back(symbol{static_cast<int32_t>(tok),
+                                      use_byte_location_ ? lexer.LastTokenLocation() : Lexer::Location(lexer.token_offset_rune_, lexer.offset_rune_)});
+      continue;
+    default:
+      break;
     }
     break;
   }
 
   next_symbol_.symbol = static_cast<int32_t>(tok);
-  next_symbol_.location = lexer.LastTokenLocation();
+  next_symbol_.location = use_byte_location_ ? lexer.LastTokenLocation() : Lexer::Location(lexer.token_offset_rune_, lexer.offset_rune_);
 }
 
-absl::Status Parser::action0([[maybe_unused]] stackEntry& lhs,
-                             [[maybe_unused]] const stackEntry* rhs) {
-  {
-    lhs.value.b = rhs[0].value.a;
-  }
-  return absl::OkStatus();
+
+absl::Status Parser::Action19__ReduceOf_JSONEmptyObject__AtLine_87_Column_67([[maybe_unused]] stackEntry& lhs,
+                        [[maybe_unused]] const stackEntry* rhs) {
+#line 87 "cpp/json/json.tm"
+{ lhs.sym.location.begin = rhs[1].sym.location.begin; }  return absl::OkStatus();
 }
-absl::Status Parser::action3([[maybe_unused]] stackEntry& lhs,
-                             [[maybe_unused]] const stackEntry* rhs) {
-  {
-    lhs.value.a = 5;
-  }
-  return absl::OkStatus();
+absl::Status Parser::Action21__ReduceOf_JSONObject__AtLine_90_Column_51([[maybe_unused]] stackEntry& lhs,
+                        [[maybe_unused]] const stackEntry* rhs) {
+#line 90 "cpp/json/json.tm"
+{ lhs.sym.location.begin = rhs[1].sym.location.begin; }  return absl::OkStatus();
 }
-absl::Status Parser::action12([[maybe_unused]] stackEntry& lhs,
-                              [[maybe_unused]] const stackEntry* rhs) {
-  {
-    lhs.value.a = 5;
-  }
-  return absl::OkStatus();
+absl::Status Parser::Action22__ReduceOf_JSONObject__AtLine_90_Column_51([[maybe_unused]] stackEntry& lhs,
+                        [[maybe_unused]] const stackEntry* rhs) {
+#line 90 "cpp/json/json.tm"
+{ lhs.sym.location.begin = rhs[1].sym.location.begin; }  return absl::OkStatus();
 }
-absl::Status Parser::action19([[maybe_unused]] stackEntry& lhs,
-                              [[maybe_unused]] const stackEntry* rhs) {
-  {
-    lhs.sym.location.begin = rhs[1].sym.location.begin;
-  }
-  return absl::OkStatus();
-}
-absl::Status Parser::action21([[maybe_unused]] stackEntry& lhs,
-                              [[maybe_unused]] const stackEntry* rhs) {
-  {
-    lhs.sym.location.begin = rhs[1].sym.location.begin;
-  }
-  return absl::OkStatus();
-}
-absl::Status Parser::action22([[maybe_unused]] stackEntry& lhs,
-                              [[maybe_unused]] const stackEntry* rhs) {
-  {
-    lhs.sym.location.begin = rhs[1].sym.location.begin;
-  }
-  return absl::OkStatus();
-}
-absl::Status Parser::action24([[maybe_unused]] stackEntry& lhs,
-                              [[maybe_unused]] const stackEntry* rhs) {
-  {
-    lhs.value.c = a;
-  }
-  return absl::OkStatus();
-}
-absl::Status Parser::action26([[maybe_unused]] stackEntry& lhs,
-                              [[maybe_unused]] const stackEntry* rhs) {
-  {
-    lhs.value.d = b;
-  }
-  return absl::OkStatus();
-}
-absl::Status Parser::action33([[maybe_unused]] stackEntry& lhs,
-                              [[maybe_unused]] const stackEntry* rhs) {
-  {
-    LOG(INFO) << rhs[-1].sym.location.begin;
-  }
-  return absl::OkStatus();
+absl::Status Parser::Action33__ReduceOf_JSONMember$1__AtLine_93_Column_23([[maybe_unused]] stackEntry& lhs,
+                        [[maybe_unused]] const stackEntry* rhs) {
+#line 93 "cpp/json/json.tm"
+{ LOG(INFO) << rhs[-1].sym.location.begin; }  return absl::OkStatus();
 }
 
 absl::Status Parser::applyRule(int32_t rule, int32_t ruleLen, stackEntry& lhs,
-                               [[maybe_unused]] stackEntry* rhs, Lexer& lexer) {
+                        [[maybe_unused]] stackEntry* rhs,
+                        Lexer& lexer) {
   switch (rule) {
-    case 0:  // JSONText : JSONValue_A
-    {
-      absl::Status action_result = action0(lhs, rhs);
-      if (!action_result.ok()) {
-        return action_result;
-      }
-    } break;
-    case 3:  // JSONValue : 'false'
-    {
-      absl::Status action_result = action3(lhs, rhs);
-      if (!action_result.ok()) {
-        return action_result;
-      }
-    } break;
-    case 12:  // JSONValue_A : 'false'
-    {
-      absl::Status action_result = action12(lhs, rhs);
-      if (!action_result.ok()) {
-        return action_result;
-      }
-    } break;
-    case 19:  // EmptyObject : lookahead_EmptyObject '{' '}'
-    {
-      absl::Status action_result = action19(lhs, rhs);
-      if (!action_result.ok()) {
-        return action_result;
-      }
-    } break;
-    case 21:  // JSONObject : lookahead_notEmptyObject '{' JSONMemberList '}'
-    {
-      absl::Status action_result = action21(lhs, rhs);
-      if (!action_result.ok()) {
-        return action_result;
-      }
-    } break;
-    case 22:  // JSONObject : lookahead_notEmptyObject '{' '}'
-    {
-      absl::Status action_result = action22(lhs, rhs);
-      if (!action_result.ok()) {
-        return action_result;
-      }
-    } break;
-    case 24:  // JSONMember : JSONString ':' JSONMember$1 JSONValue
-    {
-      absl::Status action_result = action24(lhs, rhs);
-      if (!action_result.ok()) {
-        return action_result;
-      }
-    } break;
-    case 26:  // JSONMemberList : JSONMember
-    {
-      absl::Status action_result = action26(lhs, rhs);
-      if (!action_result.ok()) {
-        return action_result;
-      }
-    } break;
-    case 33:  // JSONMember$1 :
-    {
-      absl::Status action_result = action33(lhs, rhs);
-      if (!action_result.ok()) {
-        return action_result;
-      }
-    } break;
+  case 19: // JSONEmptyObject : lookahead_JSONEmptyObject '{' '}'
+{
+  absl::Status action_result = Action19__ReduceOf_JSONEmptyObject__AtLine_87_Column_67(lhs, rhs);
+  if (!action_result.ok()) {
+    return action_result;
+  }
+}
+    break;
+  case 21: // JSONObject : lookahead_notJSONEmptyObject '{' JSONMemberList '}'
+{
+  absl::Status action_result = Action21__ReduceOf_JSONObject__AtLine_90_Column_51(lhs, rhs);
+  if (!action_result.ok()) {
+    return action_result;
+  }
+}
+    break;
+  case 22: // JSONObject : lookahead_notJSONEmptyObject '{' '}'
+{
+  absl::Status action_result = Action22__ReduceOf_JSONObject__AtLine_90_Column_51(lhs, rhs);
+  if (!action_result.ok()) {
+    return action_result;
+  }
+}
+    break;
+  case 33: // JSONMember$1 :
+{
+  absl::Status action_result = Action33__ReduceOf_JSONMember$1__AtLine_93_Column_23(lhs, rhs);
+  if (!action_result.ok()) {
+    return action_result;
+  }
+}
+    break;
 
-    case 34:
-      if (AtEmptyObject(lexer, next_symbol_.symbol)) {
-        lhs.sym.symbol = 24; /* lookahead_EmptyObject */
-      } else {
-        lhs.sym.symbol = 26; /* lookahead_notEmptyObject */
-      }
-      return absl::OkStatus();
-    default:
-      if (ruleLen > 0) {
-        // If no semantic action is provided, and the rhs is not empty, we use
-        // the value of the first symbol on the RHS as the value of the lhs.
-        lhs.value = std::move(rhs[0].value);
-      }
-      break;
+  case 34:
+        if (AtJSONEmptyObject(lexer, next_symbol_.symbol)) {
+      lhs.sym.symbol = 24; /* lookahead_JSONEmptyObject */
+    } else {
+      lhs.sym.symbol = 26; /* lookahead_notJSONEmptyObject */
+    }
+    return absl::OkStatus();
+  default:
+    break;
   }
 
   uint32_t nt = tmRuleType[rule];
   if (nt != 0) {
-    listener_(static_cast<NodeType>(nt & 0xffff),
-              static_cast<NodeFlags>(nt >> 16), lhs.sym.location);
+    listener_(static_cast<NodeType>(nt&0xffff), static_cast<NodeFlags>(nt>>16), lhs.sym.location);
   }
   return absl::OkStatus();
 }
@@ -666,10 +564,12 @@ absl::Status Parser::applyRule(int32_t rule, int32_t ruleLen, stackEntry& lhs,
 // get_location(i) where i is in [0, n-1].
 ABSL_MUST_USE_RESULT Lexer::Location DefaultCreateLocationFromRHS(
     int32_t n, absl::FunctionRef<Lexer::Location(int32_t)> get_location) {
-  return Lexer::Location(get_location(0).begin, get_location(n - 1).end);
+  return Lexer::Location(get_location(0).begin,
+                         get_location(n-1).end);
 }
 
-absl::Status Parser::Parse(int8_t start, int8_t end, Lexer& lexer) {
+absl::Status Parser::Parse(int8_t start, int8_t end,
+  Lexer& lexer) {
   pending_symbols_.clear();
   int8_t state = start;
   absl::Status lastErr = absl::OkStatus();
@@ -684,8 +584,10 @@ absl::Status Parser::Parse(int8_t start, int8_t end, Lexer& lexer) {
   // The location in this stackEntry will be used for any leading non-terminal
   // symbols satsified by %empty, so it needs to be initialized. We initialize
   // it to the start location of the first token.
-  stack.back().sym.location = Lexer::Location(lexer.LastTokenLocation().begin,
-                                              lexer.LastTokenLocation().begin);
+  auto initial_loc = use_byte_location_ ? lexer.LastTokenLocation() : Lexer::Location(lexer.token_offset_rune_, lexer.offset_rune_);
+  stack.back().sym.location =
+      Lexer::Location(initial_loc.begin,
+                      initial_loc.begin);
 
   while (state != end) {
     int32_t action = tmAction[state];
@@ -716,8 +618,8 @@ absl::Status Parser::Parse(int8_t start, int8_t end, Lexer& lexer) {
         entry.sym.location = Lexer::Location(stack.back().sym.location.end,
                                              stack.back().sym.location.end);
       } else {
-        entry.sym.location = DefaultCreateLocationFromRHS(
-            ln, [&](int32_t i) { return rhs[i].sym.location; });
+        entry.sym.location = DefaultCreateLocationFromRHS(ln,
+          [&](int32_t i) { return rhs[i].sym.location; });
       }
       absl::Status ret = applyRule(rule, ln, entry, rhs, lexer);
       if (!ret.ok()) {
@@ -730,41 +632,40 @@ absl::Status Parser::Parse(int8_t start, int8_t end, Lexer& lexer) {
                   << " consuming " << ln << " symbols, range "
                   << entry.sym.location;
       }
-      state = gotoState(stack[stack.size() - 2].state, entry.sym.symbol);
+      state = gotoState(stack[stack.size()-2].state, entry.sym.symbol);
       entry.state = state;
       stack.back() = std::move(entry);
 
     } else if (action < -1) {
       // Shift.
-      state = -2 - action;
-      if (debugSyntax) {
-        LOG(INFO) << "shift: " << symbolName(next_symbol_.symbol) << " ("
-                  << lexer.Text() << ")";
-      }
-      stack.emplace_back(stackEntry{
-          .sym = std::move(next_symbol_),
-          .state = state,
-      });
-      if (!pending_symbols_.empty()) {
-        for (const auto& tok : pending_symbols_) {
-          reportIgnoredToken(tok);
+      state = -2-action;
+        if (debugSyntax) {
+          LOG(INFO) << "shift: " << symbolName(next_symbol_.symbol) << " ("
+                    << lexer.Text() << ")";
         }
-        pending_symbols_.clear();
-      }
-      if (next_symbol_.symbol != eoiToken) {
-        switch (Token(next_symbol_.symbol)) {
-          case Token::JSONSTRING:
-            listener_(NodeType::JsonString, NodeFlags::None,
-                      next_symbol_.location);
-            break;
-          default:
-            break;
+        stack.emplace_back(stackEntry{
+            .sym = std::move(next_symbol_),
+            .state = state,
+        });
+  if (!pending_symbols_.empty()) {
+    for (const auto& tok : pending_symbols_) {
+      reportIgnoredToken(tok);
+    }
+    pending_symbols_.clear();
+  }
+        if (next_symbol_.symbol != eoiToken) {
+  switch (Token(next_symbol_.symbol)) {
+  case Token::JSONSTRING:
+    listener_(NodeType::JSONString, NodeFlags::None, next_symbol_.location);
+    break;
+    default:
+      break;
+  }
+          next_symbol_.symbol = noToken;
         }
-        next_symbol_.symbol = noToken;
-      }
-      if (recovering > 0) {
-        recovering--;
-      }
+        if (recovering > 0) {
+          recovering--;
+        }
     }
     if (action == -1 || state == -1) {
       if (recovering == 0) {
@@ -774,30 +675,45 @@ absl::Status Parser::Parse(int8_t start, int8_t end, Lexer& lexer) {
         lastErr = absl::InvalidArgumentError(absl::StrFormat(
             "Syntax error: line %d: %s", lexer.LastTokenLine(), lexer.Text()));
         if (!error_handler_(lastErr)) {
-          if (!pending_symbols_.empty()) {
-            for (const auto& tok : pending_symbols_) {
-              reportIgnoredToken(tok);
-            }
-            pending_symbols_.clear();
-          }
+  if (!pending_symbols_.empty()) {
+    for (const auto& tok : pending_symbols_) {
+      reportIgnoredToken(tok);
+    }
+    pending_symbols_.clear();
+  }
           return lastErr;
         }
       }
 
       recovering = 4;
       if (!recoverFromError(lexer, stack)) {
-        if (!pending_symbols_.empty()) {
-          for (const auto& tok : pending_symbols_) {
-            reportIgnoredToken(tok);
-          }
-          pending_symbols_.clear();
-        }
+  if (!pending_symbols_.empty()) {
+    for (const auto& tok : pending_symbols_) {
+      reportIgnoredToken(tok);
+    }
+    pending_symbols_.clear();
+  }
         return lastErr;
       }
-      state = stack[stack.size() - 1].state;
+      state = stack[stack.size()-1].state;
     }
   }
 
   return absl::OkStatus();
 }
 }  // namespace json
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

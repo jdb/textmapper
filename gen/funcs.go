@@ -48,6 +48,7 @@ var funcMap = template.FuncMap{
 	"last_id":             lastID,
 	"escape_reserved":     escapeReserved,
 	"unwrap_with_default": unwrapWithDefault,
+	"cc_type_from_param":  ccTypeFromUnion, // Extract type from parameter declaration like "int x" -> "int"
 }
 
 func stringify(s string) string {

@@ -1,0 +1,77 @@
+{{ template "header" . -}}
+#ifndef {{.Options.IncludeGuardPrefix}}AST_SELECTOR_H_
+#define {{.Options.IncludeGuardPrefix}}AST_SELECTOR_H_
+
+#include <functional>
+#include <vector>
+
+#include "../{{.Options.FilenamePrefix}}parser.h"
+
+namespace {{.Options.Namespace}} {
+
+{{ block "Selector" . -}}
+{{ if .Options.IsEnabled "Selector" -}}
+using Selector = std::function<bool({{template "nodeTypeRef" $}})>;
+{{ end -}}
+{{ end -}}
+
+{{ if .Options.IsEnabled "Selector" -}}
+// Any selector matches all node types.
+inline Selector Any = []({{template "nodeTypeRef" $}}) -> bool { return true; };
+
+{{- range .Parser.Types.RangeTypes}}
+// {{.Name}} selector matches {{.Name}} node type.
+inline Selector {{.Name}} = []({{template "nodeTypeRef" $}} t) -> bool {
+  return t == {{template "nodeTypeRef" $}}::{{.Name}};
+};
+{{- end}}
+
+{{- range .Options.ExtraTypes }}
+// {{.Name}} selector matches {{.Name}} node type.
+inline Selector {{.Name}} = []({{template "nodeTypeRef" $}} t) -> bool {
+  return t == {{template "nodeTypeRef" $}}::{{.Name}};
+};
+{{- end }}
+
+{{ block "OneOf" . -}}
+{{ if .Options.IsEnabled "OneOf" -}}
+// OneOf creates a selector that matches any of the given node types.
+inline Selector OneOf(const std::vector<{{template "nodeTypeRef" $}}>& types) {
+  if (types.empty()) {
+    return []({{template "nodeTypeRef" $}}) -> bool { return false; };
+  }
+  // Use a bitset for efficient lookup
+  constexpr int bits = 32;
+  int max = 1;
+  for ({{template "nodeTypeRef" $}} t : types) {
+    if (static_cast<int>(t) > max) {
+      max = static_cast<int>(t);
+    }
+  }
+  int size = (max + bits) / bits;
+  std::vector<uint32_t> bitarr(size, 0);
+  for ({{template "nodeTypeRef" $}} t : types) {
+    int idx = static_cast<int>(t) / bits;
+    bitarr[idx] |= 1U << (static_cast<int>(t) % bits);
+  }
+  return [bitarr]({{template "nodeTypeRef" $}} t) -> bool {
+    int idx = static_cast<int>(t) / bits;
+    return idx < static_cast<int>(bitarr.size()) &&
+           (bitarr[idx] & (1U << (static_cast<int>(t) % bits))) != 0;
+  };
+}
+{{ end -}}
+{{ end -}}
+
+{{- range .Parser.Types.Categories}}
+// {{.Name}} selector matches any of the {{.Name}} category node types.
+inline Selector {{.Name}} = OneOf(std::vector<{{template "nodeTypeRef" $}}>{ {{range $index, $t := .Types}}{{if $index}}, {{else}}{{end}}{{template "nodeTypeRef" $}}::{{$t}}{{end}} });
+{{- end }}
+
+{{ end -}}
+
+}  // namespace {{.Options.Namespace}}
+
+#endif  // {{.Options.IncludeGuardPrefix}}AST_SELECTOR_H_
+
+

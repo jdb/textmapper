@@ -54,6 +54,12 @@ var languages = map[string]*language{
 			{"parser.h", builtin(`cc_parser_h`)},
 			{"parser.cc", builtin(`cc_parser_cc`)},
 		},
+		AST: []file{
+			{"ast/tree.h", builtin(`cc_ast_tree`)},
+			{"ast/builder.h", builtin(`cc_ast_builder_h`)},
+			{"ast/builder.cc", builtin(`cc_ast_builder_cc`)},
+			{"ast/selector.h", builtin(`cc_ast_selector`)},
+		},
 		Nanobind: []file{
 			{"py_binding.cpp", builtin(`cc_py_binding`)},
 		},

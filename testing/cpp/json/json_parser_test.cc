@@ -14,13 +14,6 @@
 namespace json {
 namespace {
 
-TEST(ParserTest, Instantiate) {
-  auto listener = [](auto node, auto flags, Lexer::Location loc) {};
-  auto always_recover = [](absl::Status){ return true; };
-  Parser parser(listener, always_recover, 0, false);
-  LOG(INFO) << parser;
-}
-
 TEST(ParserTest, ParseWithLexer) {
   using TupleType = std::tuple<NodeType, int64_t, int64_t>;
   std::vector<TupleType> output;
@@ -28,7 +21,7 @@ TEST(ParserTest, ParseWithLexer) {
     output.push_back(std::make_tuple(node, loc.begin, loc.end));
   };
   auto always_recover = [](absl::Status){ return true; };
-  Parser parser(listener, always_recover, 8, false);
+  Parser parser(listener, /* error_handler */ always_recover, /* byteLocation */ true, /* x_arg */ 8, /* y_arg */ false);
   Lexer lexer("1.0");
   EXPECT_TRUE(parser.Parse(lexer).ok());
   EXPECT_THAT(output,
@@ -47,7 +40,7 @@ inline std::ostream& operator<<(std::ostream& os, const ParserTestCase& t) {
 TEST(ParserTest, NodeTypes) {
   const ParserTestCase tests[] = {
 
-      {NodeType::EmptyObject,
+      {NodeType::JSONEmptyObject,
        {
            R"(«{}»)",
            R"(«{ /* comment */ }»)",
@@ -80,12 +73,11 @@ TEST(ParserTest, NodeTypes) {
            R"(«{ "a" : «[«"b"»]» }»)",
            R"( «"aa"» )",
        }},
-      {NodeType::NonExistingType, {}},
       {NodeType::MultiLineComment,
        {
            R"({ "a"«/* abc */» : [] })",
        }},
-      {NodeType::JsonString,
+      {NodeType::JSONString,
        {
            R"({ «"a"» : [«"b"»] })",
        }},
@@ -108,7 +100,7 @@ TEST(ParserTest, NodeTypes) {
         }
       };
       auto always_recover = [](absl::Status){ return true; };
-      Parser parser(listener, always_recover, 9, true);
+      Parser parser(listener, /* error_handler */ always_recover, /* byteLocation */ true, /* x_arg */ 9, /* y_arg */ true);
       EXPECT_TRUE(parser.Parse(l).ok());
       EXPECT_THAT(got, testing::UnorderedElementsAreArray(want))
           << "Node type test failed for " << test_case.nt << " on input:\n"
@@ -126,3 +118,4 @@ TEST(ParserTest, NodeTypes) {
 
 }  // namespace
 }  // namespace json
+

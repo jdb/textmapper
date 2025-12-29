@@ -1,0 +1,202 @@
+{{ template "header" . -}}
+{{/* This template generates both parse.h and parse.cc */}}
+{{/* We'll use a conditional to output header or implementation */}}
+{{ if .IsHeader -}}
+#ifndef {{.Options.IncludeGuardPrefix}}AST_PARSE_H_
+#define {{.Options.IncludeGuardPrefix}}AST_PARSE_H_
+
+#include <memory>
+#include <string>
+
+#include "{{.Options.DirIncludePrefix}}{{.Options.FilenamePrefix}}ast/tree.h"
+{{ if $.Options.TokenStream -}}
+#include "{{.Options.DirIncludePrefix}}{{.Options.FilenamePrefix}}stream.h"
+{{ else -}}
+#include "{{.Options.DirIncludePrefix}}{{.Options.FilenamePrefix}}lexer.h"
+{{ end -}}
+#include "{{.Options.DirIncludePrefix}}{{.Options.FilenamePrefix}}parser.h"
+
+namespace {{.Options.Namespace}} {
+
+// Parse parses a given utf-8 content into an AST.
+Tree Parse(const std::string& path, const std::string& content{{if .Parser.IsRecovering }}, ErrorHandler eh{{end}});
+
+}  // namespace {{.Options.Namespace}}
+
+#endif  // {{.Options.IncludeGuardPrefix}}AST_PARSE_H_
+
+{{ else -}}
+#include "{{.Options.DirIncludePrefix}}{{.Options.FilenamePrefix}}ast/parse.h"
+#include "{{.Options.DirIncludePrefix}}{{.Options.FilenamePrefix}}ast/tree.h"
+
+#include <algorithm>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+namespace {{.Options.Namespace}} {
+
+// Tree implementation
+Tree::Tree(const std::string& path, const std::string& content)
+    : path_(path), content_(content), lines_(LineOffsets(content)), root_(nullptr) {}
+
+std::pair<int, int> Tree::LineColumn(int64_t offset) const {
+  const auto& lines = lines_;
+  // Binary search to find the line number
+  int left = 0;
+  int right = static_cast<int>(lines.size()) - 1;
+  int line = 0;
+  while (left <= right) {
+    int mid = (left + right) / 2;
+    if (lines[mid] > offset) {
+      right = mid - 1;
+    } else {
+      line = mid;
+      left = mid + 1;
+    }
+  }
+  return {line + 1, static_cast<int>(offset - lines[line] + 1)};
+}
+
+std::vector<int64_t> Tree::LineOffsets(const std::string& str) {
+  std::vector<int64_t> lines = {0};  // Initialize with the starting offset (0)
+  int64_t offset = 0;
+
+  size_t i = str.find('\n', offset);
+  while (i != std::string::npos) {
+    lines.push_back(static_cast<int64_t>(i + 1));
+    offset = static_cast<int64_t>(i + 1);
+    i = str.find('\n', offset);
+  }
+
+  return lines;
+}
+
+// Node implementation
+Node::Node(Tree* tree, {{template "nodeTypeRef" $}} type, int64_t offset, int64_t endoffset)
+    : type_(type),
+      offset_(offset),
+      endoffset_(endoffset),
+      parent_(nullptr),
+      next_(nullptr),
+      firstChild_(nullptr),
+      tree_(tree) {}
+
+// Builder class that implements the parser listener
+class Builder {
+ public:
+  Builder(const std::string& path, const std::string& content)
+      : tree_(path, content), stack_() {
+    stack_.reserve(512);
+  }
+
+  void AddNode({{template "nodeTypeRef" $}} type, {{if or .Parser.UsedFlags .Lexer.UsedFlags}}{{template "nodeFlagsRef" $}} flags, {{end}}int64_t offset, int64_t endoffset) {
+    size_t start = stack_.size();
+    size_t end = start;
+
+    while (start > 0 && stack_[start - 1]->offset_ >= offset) {
+      start--;
+      if (stack_[start]->offset_ >= endoffset) {
+        end--;
+      }
+    }
+
+    auto new_node = std::make_unique<Node>(&tree_, type, offset, endoffset);
+    Node* node_ptr = new_node.get();
+
+    if (start < end) {
+      node_ptr->firstChild_ = stack_[start];
+      Node* prev = nullptr;
+      for (size_t i = end; i > start;) {
+        i--;
+        Node* n = stack_[i];
+        n->parent_ = node_ptr;
+        n->next_ = prev;
+        prev = n;
+      }
+    }
+
+    if (end == stack_.size()) {
+      stack_.resize(start);
+      stack_.push_back(std::move(new_node));
+    } else if (start < end) {
+      stack_[start] = std::move(new_node);
+      // Move elements from [end, stack_.size()) to [start+1, ...)
+      size_t copy_len = stack_.size() - end;
+      for (size_t i = 0; i < copy_len; i++) {
+        if (start + 1 + i < stack_.size()) {
+          stack_[start + 1 + i] = std::move(stack_[end + i]);
+        } else {
+          stack_.push_back(std::move(stack_[end + i]));
+        }
+      }
+      stack_.resize(start + 1 + copy_len);
+    } else {
+      stack_.push_back(nullptr);
+      // Shift elements from [start, stack_.size()-1) to [start+1, stack_.size())
+      for (size_t i = stack_.size() - 1; i > start; i--) {
+        stack_[i] = std::move(stack_[i - 1]);
+      }
+      stack_[start] = std::move(new_node);
+    }
+  }
+
+  Tree Build() {
+{{ if .Options.FileNode -}}
+    AddNode({{template "nodeTypePkg" $}}::{{.Options.FileNode}}, {{if or .Parser.UsedFlags .Lexer.UsedFlags}}{{template "nodeFlagsPkg" $}}::None, {{end}}0, static_cast<int64_t>(tree_.content_.length()));
+{{ else -}}
+    if (stack_.size() != 1) {
+      // Error: exactly one root node is expected
+      // For now, we'll just set root to nullptr or the first node
+      // In a real implementation, you might want to return an error
+    }
+{{ end -}}
+    tree_.root_ = stack_[0].get();
+    // Transfer ownership of nodes to tree (they're stored in stack_)
+    // Actually, we need to keep them alive. Let's store them in the tree.
+    // For now, we'll use a different approach - store unique_ptrs in tree
+    return std::move(tree_);
+  }
+
+ private:
+  Tree tree_;
+  std::vector<std::unique_ptr<Node>> stack_;
+};
+
+// Parse function implementation
+Tree Parse(const std::string& path, const std::string& content{{if .Parser.IsRecovering }}, ErrorHandler eh{{end}}) {
+  Builder builder(path, content);
+  
+  auto listener = [&builder]({{template "nodeTypeRef" $}} type, {{if or .Parser.UsedFlags .Lexer.UsedFlags}}{{template "nodeFlagsRef" $}} flags, {{end}}Lexer::Location loc) {
+    builder.AddNode(type, {{if or .Parser.UsedFlags .Lexer.UsedFlags}}flags, {{end}}loc.begin, loc.end);
+  };
+  
+{{ if .Parser.IsRecovering -}}
+  auto error_handler = [eh](absl::Status status) -> bool {
+    return eh(status);
+  };
+{{ else -}}
+  auto error_handler = [](absl::Status status) -> bool {
+    return true;  // Always recover from errors
+  };
+{{ end -}}
+  
+{{ if $.Options.TokenStream -}}
+  TokenStream stream(content, listener);
+  Parser parser({{if .Parser.IsRecovering }}error_handler, {{end}}listener);
+  (void)parser.Parse(stream);
+{{ else -}}
+  Lexer lexer(content);
+  Parser parser({{if .Parser.IsRecovering }}error_handler, {{end}}listener{{- range .Options.ParseParams}}, 0{{end}});
+  (void)parser.Parse(lexer);
+{{ end -}}
+  
+  return builder.Build();
+}
+
+}  // namespace {{.Options.Namespace}}
+
+{{ end -}}
+
+

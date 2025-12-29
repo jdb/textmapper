@@ -1,0 +1,262 @@
+{{ template "header" . -}}
+#ifndef {{.Options.IncludeGuardPrefix}}AST_TREE_H_
+#define {{.Options.IncludeGuardPrefix}}AST_TREE_H_
+
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "../{{.Options.FilenamePrefix}}parser.h"
+{{ if .Options.GenSelector -}}
+#include "../{{.Options.FilenamePrefix}}selector/selector.h"
+{{ end -}}
+
+namespace {{.Options.Namespace}} {
+
+// Forward declarations
+class Builder;
+{{ if .Options.GenSelector -}}
+using Selector = std::function<bool({{template "nodeTypeRef" $}})>;
+{{ end -}}
+
+// Tree is a parse tree for some content.
+class Tree {
+ public:
+  Tree(const std::string& path, const std::string& content);
+  
+  // Tree is non-copyable (contains unique_ptr)
+  Tree(const Tree&) = delete;
+  Tree& operator=(const Tree&) = delete;
+  
+  // Tree is moveable
+  Tree(Tree&&) = default;
+  Tree& operator=(Tree&&) = default;
+
+  // Path returns the location of the parsed content (if any).
+  const std::string& Path() const { return path_; }
+
+  // Root returns the root node of this tree.
+  const class Node* Root() const { return root_; }
+
+  // Text returns the parsed content.
+  const std::string& Text() const { return content_; }
+
+  // GetContentSubstring returns a substring of the content.
+  std::string GetContentSubstring(int64_t offset, int64_t endoffset) const {
+    return content_.substr(offset, endoffset - offset);
+  }
+
+  // LineColumn returns the start position as 1-based line and column.
+  std::pair<int, int> LineColumn(int64_t offset) const;
+
+ private:
+  friend class Builder;
+  std::string path_;
+  std::string content_;
+  std::vector<int64_t> lines_;
+  class Node* root_;
+  // Store nodes to keep them alive
+  std::vector<std::unique_ptr<class Node>> nodes_;
+
+  static std::vector<int64_t> LineOffsets(const std::string& str);
+  
+  // SetNodes transfers ownership of nodes to the tree
+  void SetNodes(std::vector<std::unique_ptr<class Node>> nodes) {
+    nodes_ = std::move(nodes);
+  }
+};
+
+// Forward declare Builder (defined in parse.cc)
+class Builder;
+
+// Node is an AST node.
+class Node {
+ public:
+  // IsValid helps to detect non-existing nodes.
+  bool IsValid() const { return this != nullptr; }
+
+  // Type returns the node type.
+  {{template "nodeTypeRef" $}} Type() const {
+    if (this == nullptr) {
+      return {{template "nodeTypeRef" $}}::NoType;
+    }
+    return type_;
+  }
+
+  // Tree returns the tree of the node (can be nullptr).
+  const Tree* GetTree() const {
+    if (this == nullptr) {
+      return nullptr;
+    }
+    return tree_;
+  }
+
+  // Offset returns the start offset of the node.
+  int64_t Offset() const {
+    if (this == nullptr) {
+      return 0;
+    }
+    return offset_;
+  }
+
+  // Endoffset returns the end offset of the node.
+  int64_t Endoffset() const {
+    if (this == nullptr) {
+      return 0;
+    }
+    return endoffset_;
+  }
+
+  // LineColumn returns the start position of the nodes as 1-based line and column.
+  std::pair<int, int> LineColumn() const {
+    if (this == nullptr) {
+      return {1, 1};
+    }
+    return tree_->LineColumn(offset_);
+  }
+
+{{ if .Options.GenSelector -}}
+  // Child returns the first child node matching a given selector.
+  const Node* Child(Selector sel) const {
+    if (this == nullptr) {
+      return nullptr;
+    }
+    for (const Node* c = firstChild_; c != nullptr; c = c->next_) {
+      if (sel(c->type_)) {
+        return c;
+      }
+    }
+    return nullptr;
+  }
+
+  // Children returns all child nodes matching a given selector.
+  std::vector<const Node*> Children(Selector sel) const {
+    if (this == nullptr) {
+      return {};
+    }
+    std::vector<const Node*> ret;
+    for (const Node* c = firstChild_; c != nullptr; c = c->next_) {
+      if (sel(c->type_)) {
+        ret.push_back(c);
+      }
+    }
+    return ret;
+  }
+
+  // Next returns the first node among right siblings of this node matching a given selector.
+  const Node* Next(Selector sel) const {
+    if (this == nullptr) {
+      return nullptr;
+    }
+    for (const Node* c = next_; c != nullptr; c = c->next_) {
+      if (sel(c->type_)) {
+        return c;
+      }
+    }
+    return nullptr;
+  }
+
+  // NextAll returns all right siblings of this node matching a given selector.
+  std::vector<const Node*> NextAll(Selector sel) const {
+    if (this == nullptr) {
+      return {};
+    }
+    std::vector<const Node*> ret;
+    for (const Node* c = next_; c != nullptr; c = c->next_) {
+      if (sel(c->type_)) {
+        ret.push_back(c);
+      }
+    }
+    return ret;
+  }
+{{ end -}}
+
+  // Text returns the text of the node.
+  std::string Text() const {
+    if (this == nullptr) {
+      return "";
+    }
+    return tree_->GetContentSubstring(offset_, endoffset_);
+  }
+{{ if .Options.GenSelector -}}
+
+  // Traverse performs a depth-first traversal of the subtree rooted at this node.
+  // The callback is called for each node. If the callback returns false, traversal
+  // of that node's subtree is skipped.
+  void Traverse(std::function<bool(const Node*)> callback) const {
+    if (this == nullptr || !callback(this)) {
+      return;
+    }
+    std::vector<const Node*> children = Children(Any);
+    for (const Node* child : children) {
+      child->Traverse(callback);
+    }
+  }
+{{ end -}}
+
+ private:
+  friend class Builder;
+
+  {{template "nodeTypeRef" $}} type_;
+  int64_t offset_;
+  int64_t endoffset_;
+  Node* parent_;
+  Node* next_;
+  Node* firstChild_;
+  Tree* tree_;
+
+  Node(Tree* tree, {{template "nodeTypeRef" $}} type, int64_t offset, int64_t endoffset);
+};
+
+// Tree implementation
+inline Tree::Tree(const std::string& path, const std::string& content)
+    : path_(path), content_(content), lines_(LineOffsets(content)), root_(nullptr), nodes_() {}
+
+inline std::pair<int, int> Tree::LineColumn(int64_t offset) const {
+  const auto& lines = lines_;
+  // Binary search to find the line number
+  int left = 0;
+  int right = static_cast<int>(lines.size()) - 1;
+  int line = 0;
+  while (left <= right) {
+    int mid = (left + right) / 2;
+    if (lines[mid] > offset) {
+      right = mid - 1;
+    } else {
+      line = mid;
+      left = mid + 1;
+    }
+  }
+  return {line + 1, static_cast<int>(offset - lines[line] + 1)};
+}
+
+inline std::vector<int64_t> Tree::LineOffsets(const std::string& str) {
+  std::vector<int64_t> lines = {0};  // Initialize with the starting offset (0)
+  int64_t offset = 0;
+
+  size_t i = str.find('\n', offset);
+  while (i != std::string::npos) {
+    lines.push_back(static_cast<int64_t>(i + 1));
+    offset = static_cast<int64_t>(i + 1);
+    i = str.find('\n', offset);
+  }
+
+  return lines;
+}
+
+// Node implementation
+inline Node::Node(Tree* tree, {{template "nodeTypeRef" $}} type, int64_t offset, int64_t endoffset)
+    : type_(type),
+      offset_(offset),
+      endoffset_(endoffset),
+      parent_(nullptr),
+      next_(nullptr),
+      firstChild_(nullptr),
+      tree_(tree) {}
+
+}  // namespace {{.Options.Namespace}}
+
+#endif  // {{.Options.IncludeGuardPrefix}}AST_TREE_H_

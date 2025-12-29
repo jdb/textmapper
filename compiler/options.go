@@ -92,7 +92,7 @@ func (p *optionsParser) parseFrom(file ast.File) {
 		case "eventBased":
 			opts.EventBased = p.parseExpr(opt.Value(), opts.EventBased).(bool)
 		case "genSelector":
-			p.validLangs(opt.Key(), "go", "ts")
+			p.validLangs(opt.Key(), "go", "ts", "cc")
 			opts.GenSelector = p.parseExpr(opt.Value(), opts.GenSelector).(bool)
 		case "fixWhitespace":
 			p.validLangs(opt.Key(), "go", "ts")
@@ -109,15 +109,15 @@ func (p *optionsParser) parseFrom(file ast.File) {
 			opts.MaxLookahead = p.parseExpr(opt.Value(), opts.MaxLookahead).(int)
 		case "disableSyntax":
 			opts.DisableSyntax = p.parseExpr(opt.Value(), opts.DisableSyntax).([]string)
- 		case "expansionLimit":
- 			opts.ExpansionLimit = p.parseExpr(opt.Value(), opts.ExpansionLimit).(int)
- 		case "expansionWarn":
- 			opts.ExpansionWarn = p.parseExpr(opt.Value(), opts.ExpansionWarn).(int)
+		case "expansionLimit":
+			opts.ExpansionLimit = p.parseExpr(opt.Value(), opts.ExpansionLimit).(int)
+		case "expansionWarn":
+			opts.ExpansionWarn = p.parseExpr(opt.Value(), opts.ExpansionWarn).(int)
 		case "eventFields":
 			p.validLangs(opt.Key(), "go")
 			opts.EventFields = p.parseExpr(opt.Value(), opts.EventFields).(bool)
 		case "eventAST":
-			p.validLangs(opt.Key(), "go", "ts")
+			p.validLangs(opt.Key(), "go", "ts", "cc")
 			opts.EventAST = p.parseExpr(opt.Value(), opts.EventAST).(bool)
 		case "extraTypes":
 			opts.ExtraTypes = p.parseExpr(opt.Value(), opts.ExtraTypes).([]syntax.ExtraType)

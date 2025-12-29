@@ -1,0 +1,131 @@
+{{ template "header" . -}}
+#include "builder.h"
+#include "tree.h"
+#include "../{{.Options.FilenamePrefix}}lexer.h"
+#include "../{{.Options.FilenamePrefix}}parser.h"
+{{ if .Options.GenSelector -}}
+#include "../{{.Options.FilenamePrefix}}selector/selector.h"
+{{ end -}}
+#include "absl/functional/function_ref.h"
+#include "absl/status/status.h"
+
+#include <algorithm>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+namespace {{.Options.Namespace}} {
+
+// Forward declaration was in tree.h
+// Builder class that implements the parser listener
+class Builder {
+ public:
+  Builder(const std::string& path, const std::string& content)
+      : tree_(path, content), stack_() {
+    stack_.reserve(512);
+  }
+
+  void AddNode({{template "nodeTypeRef" $}} type, {{if or .Parser.UsedFlags .Lexer.UsedFlags}}{{template "nodeFlagsRef" $}} flags, {{end}}Lexer::Location loc) {
+    size_t start = stack_.size();
+    size_t end = start;
+
+    while (start > 0 && stack_[start - 1]->offset_ >= loc.begin) {
+      start--;
+      if (stack_[start]->offset_ >= loc.end) {
+        end--;
+      }
+    }
+
+    // Create node directly (Builder is a friend of Node)
+    Node* node_ptr = new Node(&tree_, type, loc.begin, loc.end);
+    std::unique_ptr<Node> new_node(node_ptr);
+
+    if (start < end) {
+      node_ptr->firstChild_ = stack_[start].get();
+      Node* prev = nullptr;
+      for (size_t i = end; i > start;) {
+        i--;
+        Node* n = stack_[i].get();
+        n->parent_ = node_ptr;
+        n->next_ = prev;
+        prev = n;
+      }
+    }
+
+    if (end == stack_.size()) {
+      stack_.resize(start);
+      stack_.push_back(std::move(new_node));
+    } else if (start < end) {
+      stack_[start] = std::move(new_node);
+      // Move elements from [end, stack_.size()) to [start+1, ...)
+      size_t copy_len = stack_.size() - end;
+      for (size_t i = 0; i < copy_len; i++) {
+        if (start + 1 + i < stack_.size()) {
+          stack_[start + 1 + i] = std::move(stack_[end + i]);
+        } else {
+          stack_.push_back(std::move(stack_[end + i]));
+        }
+      }
+      stack_.resize(start + 1 + copy_len);
+    } else {
+      stack_.push_back(nullptr);
+      // Shift elements from [start, stack_.size()-1) to [start+1, stack_.size())
+      for (size_t i = stack_.size() - 1; i > start; i--) {
+        stack_[i] = std::move(stack_[i - 1]);
+      }
+      stack_[start] = std::move(new_node);
+    }
+  }
+
+  Tree Build() {
+{{ if .Options.FileNode -}}
+    AddNode({{template "nodeTypePkg" $}}::{{.Options.FileNode}}, {{if or .Parser.UsedFlags .Lexer.UsedFlags}}{{template "nodeFlagsPkg" $}}::None, {{end}}Lexer::Location(0, static_cast<int64_t>(tree_.Text().length())));
+{{ else -}}
+    if (stack_.size() != 1) {
+      // Error: exactly one root node is expected
+      // For now, we'll just set root to the first node if available
+    }
+{{ end -}}
+    // Transfer ownership of nodes to the tree to keep them alive
+    tree_.SetNodes(std::move(stack_));
+    // Set root after moving nodes to ensure pointer is valid
+    tree_.root_ = tree_.nodes_.empty() ? nullptr : tree_.nodes_[0].get();
+    return std::move(tree_);
+  }
+
+ private:
+  Tree tree_;
+  std::vector<std::unique_ptr<Node>> stack_;
+};
+
+// Parse function implementation
+Tree Parse(const std::string& path, const std::string& content{{if .Parser.IsRecovering }}, absl::FunctionRef<bool(absl::Status)> error_handler{{end}}) {
+  Builder builder(path, content);
+  
+  auto listener = [&builder]({{template "nodeTypeRef" $}} type, {{if or .Parser.UsedFlags .Lexer.UsedFlags}}{{template "nodeFlagsRef" $}} flags, {{end}}Lexer::Location loc) {
+    builder.AddNode(type, {{if or .Parser.UsedFlags .Lexer.UsedFlags}}flags, {{end}}loc);
+  };
+  
+{{ if not .Parser.IsRecovering -}}
+  auto error_handler = [](absl::Status status) -> bool {
+    return true;  // Always recover from errors
+  };
+{{ end -}}
+  
+{{ if $.Options.TokenStream -}}
+  TokenStream stream(content, listener);
+  Parser parser(listener, error_handler, false{{- range $i, $p := .Options.ParseParams}}, 0{{end}});
+  (void)parser.Parse(stream);
+{{ else -}}
+  Lexer lexer(content);
+  Parser parser(listener, error_handler, false{{- range $i, $p := .Options.ParseParams}}, 0{{end}});
+  (void)parser.Parse(lexer);
+{{ end -}}
+  
+  return builder.Build();
+}
+
+}  // namespace {{.Options.Namespace}}
+
+
